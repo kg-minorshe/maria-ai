@@ -28,6 +28,7 @@ const {
   loadKnowledgeBase: loadKnowledgeBaseService,
   createEmptyKnowledgeBase,
 } = require("./services/knowledgeBase");
+const { LocalEmbeddingRuntime } = require("./services/localEmbeddingRuntime");
 const {
   EnhancedEscalationService,
 } = require("./services/enhancedEscalationService");
@@ -48,6 +49,7 @@ let ambiguityResolver;
 let cognitiveModeling;
 let emotionalIntelligence;
 let reasoningEngine;
+let embeddingRuntime;
 
 // Статистика работы системы
 let systemStats = {
@@ -103,7 +105,10 @@ function initializeSystem() {
     // Инициализация компонентов
     contextManager = new DialogContextManager();
     queryAnalyzer = new AdvancedQueryAnalyzer();
-    searchEngine = new SemanticSearchEngine(knowledgeBase);
+    embeddingRuntime = new LocalEmbeddingRuntime({ knowledgeBase });
+    searchEngine = new SemanticSearchEngine(knowledgeBase, {
+      embeddingRuntime,
+    });
     responseGenerator = new ResponseGenerator();
     ambiguityResolver = new AmbiguityResolver();
     cognitiveModeling = new CognitiveUserModeling();
@@ -133,13 +138,14 @@ function loadKnowledgeBase() {
       knowledgeBase: combinedKnowledgeBase,
       projectKnowledgeBase,
       generalKnowledgeBase,
+      russianDataset,
     } = loadKnowledgeBaseService({ rootDir: ROOT_DIR });
 
     knowledgeBase = combinedKnowledgeBase;
     global.knowledgeBase = knowledgeBase;
 
     console.log(
-      `📚 База знаний загружена: ${knowledgeBase.length} статей (проект: ${projectKnowledgeBase.length}, общие темы: ${generalKnowledgeBase.length})`
+      `📚 База знаний загружена: ${knowledgeBase.length} статей (проект: ${projectKnowledgeBase.length}, общие темы: ${generalKnowledgeBase.length}, русский датасет: ${russianDataset.length})`
     );
   } catch (error) {
     console.error("❌ Ошибка загрузки базы знаний:", error.message);
@@ -680,7 +686,10 @@ if (process.env.NODE_ENV === "development") {
   app.post("/api/admin/knowledge-base/reload", (req, res) => {
     try {
       loadKnowledgeBase();
-      searchEngine = new SemanticSearchEngine(knowledgeBase);
+      embeddingRuntime = new LocalEmbeddingRuntime({ knowledgeBase });
+      searchEngine = new SemanticSearchEngine(knowledgeBase, {
+        embeddingRuntime,
+      });
 
       res.json({
         message: "База знаний перезагружена успешно",
