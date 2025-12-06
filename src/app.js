@@ -43,6 +43,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const ROOT_DIR = path.resolve(__dirname, "..");
 const isDevelopment = process.env.NODE_ENV === "development";
+const isFastDevMode = isDevelopment && process.env.FAST_DEV_MODE === "true";
 
 const devLog = (...args) => {
   if (isDevelopment) {
@@ -399,13 +400,22 @@ app.post("/api/chat/query", async (req, res) => {
       /почему|зачем|как\s+так|каким\s+образом/i.test(resolvedMessage);
 
     let reasoningResult = null;
+    const shouldRunReasoning = needsReasoning && !isFastDevMode;
+
     try {
-      if (needsReasoning) {
+      if (shouldRunReasoning) {
         reasoningResult = reasoningEngine.reason(
           resolvedMessage,
           context,
           knowledgeBase
         );
+      } else if (needsReasoning && isFastDevMode) {
+        reasoningResult = {
+          reasoningType: "dev-fast-skip",
+          conclusion:
+            "Reasoning пропущен в FAST_DEV_MODE для моментальной обработки.",
+          justification: "Включен ускоренный режим разработки.",
+        };
       }
     } catch (error) {
       console.error("❌ Ошибка reasoning:", error);
@@ -414,16 +424,30 @@ app.post("/api/chat/query", async (req, res) => {
     devLog("Reasoning выполнен", {
       needsReasoning,
       reasoningType: reasoningResult?.reasoningType,
+      skippedForSpeed: !shouldRunReasoning && needsReasoning,
     });
 
     // 8. Семантический поиск с защитой от ошибок
     let searchResults;
+    const shouldRunSemanticSearch = !isFastDevMode;
     try {
-      searchResults = searchEngine.search(resolvedMessage, {
-        ...context,
-        userProfile,
-        emotionalState,
-      });
+      if (shouldRunSemanticSearch) {
+        searchResults = searchEngine.search(resolvedMessage, {
+          ...context,
+          userProfile,
+          emotionalState,
+        });
+      } else {
+        searchResults = {
+          results: [],
+          confidence: 0,
+          totalMatches: 0,
+          reasoningType: reasoningResult?.reasoningType || "dev-fast-skip",
+          conclusion:
+            "Семантический поиск пропущен в FAST_DEV_MODE для моментальной обработки.",
+          justification: "Включен ускоренный режим разработки.",
+        };
+      }
     } catch (error) {
       console.error("❌ Ошибка семантического поиска:", error);
       searchResults = {
@@ -435,6 +459,7 @@ app.post("/api/chat/query", async (req, res) => {
     devLog("Семантический поиск завершен", {
       totalMatches: searchResults.totalMatches,
       confidence: searchResults.confidence,
+      skippedForSpeed: !shouldRunSemanticSearch,
     });
 
     // 9. Генерация ответа с учётом когнитивной модели и защитой от ошибок
