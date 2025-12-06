@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const readline = require("readline");
 
 const DEFAULT_DATASET_PATH = path.join(
   path.resolve(__dirname, "../.."),
@@ -41,21 +42,38 @@ function ensureDatasetExists(datasetPath = DEFAULT_DATASET_PATH) {
   );
 }
 
-function readJsonl(datasetPath) {
-  const content = fs.readFileSync(datasetPath, "utf8");
-  return content
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line, index) => {
-      try {
-        return JSON.parse(line);
-      } catch (error) {
-        console.warn(`⚠️  Строка ${index + 1} в ${datasetPath} не распознана и будет пропущена`);
-        return null;
-      }
-    })
-    .filter(Boolean);
+async function readJsonl(datasetPath, { limit } = {}) {
+  const fileStream = fs.createReadStream(datasetPath, { encoding: "utf8" });
+  const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+
+  const result = [];
+  let lineNumber = 0;
+
+  for await (const line of rl) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    lineNumber += 1;
+
+    try {
+      result.push(JSON.parse(trimmed));
+    } catch (error) {
+      console.warn(`⚠️  Строка ${lineNumber} в ${datasetPath} не распознана и будет пропущена`);
+    }
+
+    if (result.length % 1000 === 0) {
+      console.log(`📥 Загружено ${result.length} записей русского датасета в память`);
+    }
+
+    if (typeof limit === "number" && limit > 0 && result.length >= limit) {
+      console.log(
+        `⏩ Достигнут лимит загрузки ${limit} строк русского датасета, дальнейшее чтение остановлено`
+      );
+      break;
+    }
+  }
+
+  return result;
 }
 
 function normalizeDatasetEntry(entry, index) {
@@ -74,7 +92,7 @@ function normalizeDatasetEntry(entry, index) {
   };
 }
 
-function loadRussianDataset({ rootDir = path.resolve(__dirname, "../.."), datasetPath, limit } = {}) {
+async function loadRussianDataset({ rootDir = path.resolve(__dirname, "../.."), datasetPath, limit } = {}) {
   const resolvedDatasetPath = datasetPath || process.env.KB_RUSSIAN_PATH || DEFAULT_DATASET_PATH;
   ensureDatasetExists(resolvedDatasetPath);
 
@@ -83,7 +101,7 @@ function loadRussianDataset({ rootDir = path.resolve(__dirname, "../.."), datase
     return [];
   }
 
-  const rawEntries = readJsonl(resolvedDatasetPath);
+  const rawEntries = await readJsonl(resolvedDatasetPath, { limit });
   const normalized = rawEntries.map(normalizeDatasetEntry);
   return typeof limit === "number" && limit > 0 ? normalized.slice(0, limit) : normalized;
 }

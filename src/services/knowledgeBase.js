@@ -2,13 +2,15 @@ const fs = require("fs");
 const path = require("path");
 const { loadRussianDataset } = require("./russianDatasetLoader");
 
-let cachedKnowledgeBase = null;
-let cachedSources = {
+let knowledgeStore = {
   projectKnowledgeBase: [],
   generalKnowledgeBase: [],
   russianDataset: [],
+  combined: [],
+  status: "idle",
+  loadedAt: null,
+  loadTimeMs: 0,
 };
-let knowledgeBaseStatus = "idle";
 
 function resolveKnowledgePaths(rootDir) {
   const knowledgeDir = path.join(rootDir, "data", "knowledge");
@@ -19,75 +21,112 @@ function resolveKnowledgePaths(rootDir) {
   };
 }
 
-function loadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
-  if (cachedKnowledgeBase) {
+async function loadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
+  if (knowledgeStore.status === "ready" && knowledgeStore.combined.length) {
     console.log(
-      `ℹ️  Используется предзагруженная база знаний в памяти (${cachedKnowledgeBase.length} статей)`
+      `ℹ️  Используется предзагруженная база знаний в памяти (${knowledgeStore.combined.length} статей)`
     );
 
     return {
-      knowledgeBase: cachedKnowledgeBase,
-      ...cachedSources,
+      knowledgeBase: knowledgeStore.combined,
+      projectKnowledgeBase: knowledgeStore.projectKnowledgeBase,
+      generalKnowledgeBase: knowledgeStore.generalKnowledgeBase,
+      russianDataset: knowledgeStore.russianDataset,
     };
   }
 
   return reloadKnowledgeBase({ projectPath, generalPath, rootDir });
 }
 
-function reloadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
+async function reloadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
   console.log("⏳ Предзагрузка базы знаний в оперативную память...");
-  knowledgeBaseStatus = "loading";
+  knowledgeStore.status = "loading";
 
-  const loaded = loadKnowledgeBaseFromDisk({ projectPath, generalPath, rootDir });
+  const loadStart = Date.now();
 
-  cachedKnowledgeBase = loaded.knowledgeBase;
-  cachedSources = {
+  const loaded = await loadKnowledgeBaseFromStorage({
+    projectPath,
+    generalPath,
+    rootDir,
+  });
+
+  knowledgeStore = {
+    ...knowledgeStore,
+    combined: loaded.knowledgeBase,
     projectKnowledgeBase: loaded.projectKnowledgeBase,
     generalKnowledgeBase: loaded.generalKnowledgeBase,
     russianDataset: loaded.russianDataset,
+    status: "ready",
+    loadedAt: new Date(),
+    loadTimeMs: Date.now() - loadStart,
   };
-  knowledgeBaseStatus = "ready";
 
   console.log(
-    `✅ База знаний загружена в память (${cachedKnowledgeBase.length} статей, статус: ${knowledgeBaseStatus})`
+    `✅ База знаний загружена в память (${knowledgeStore.combined.length} статей, статус: ${knowledgeStore.status}, время: ${knowledgeStore.loadTimeMs} мс)`
   );
 
   return {
-    knowledgeBase: cachedKnowledgeBase,
-    ...cachedSources,
+    knowledgeBase: knowledgeStore.combined,
+    projectKnowledgeBase: knowledgeStore.projectKnowledgeBase,
+    generalKnowledgeBase: knowledgeStore.generalKnowledgeBase,
+    russianDataset: knowledgeStore.russianDataset,
   };
 }
 
-function loadKnowledgeBaseFromDisk({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
+async function loadKnowledgeBaseFromStorage({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
   const paths = resolveKnowledgePaths(rootDir);
 
   const resolvedProjectPath = projectPath || process.env.KB_PROJECT_PATH || paths.project;
   const resolvedGeneralPath = generalPath || process.env.KB_GENERAL_PATH || paths.general;
   const russianDatasetPath = process.env.KB_RUSSIAN_PATH;
 
-  const projectKnowledgeBase = loadKnowledgeBaseFile(
-    resolvedProjectPath,
-    createSampleProjectKnowledgeBase,
-    "проектная база знаний"
+  const projectStart = Date.now();
+  const projectKnowledgeBase = appendSource(
+    loadKnowledgeBaseFile(
+      resolvedProjectPath,
+      createSampleProjectKnowledgeBase,
+      "проектная база знаний"
+    ),
+    "project"
+  );
+  console.log(
+    `📚 Загружена проектная база знаний: ${projectKnowledgeBase.length} записей за ${Date.now() - projectStart} мс`
   );
 
-  const generalKnowledgeBase = loadKnowledgeBaseFile(
-    resolvedGeneralPath,
-    createSampleGeneralKnowledgeBase,
-    "общая база знаний"
+  const generalStart = Date.now();
+  const generalKnowledgeBase = appendSource(
+    loadKnowledgeBaseFile(
+      resolvedGeneralPath,
+      createSampleGeneralKnowledgeBase,
+      "общая база знаний"
+    ),
+    "general"
+  );
+  console.log(
+    `📖 Загружена общая база знаний: ${generalKnowledgeBase.length} записей за ${Date.now() - generalStart} мс`
   );
 
-  const russianDataset = loadRussianDataset({
-    rootDir,
-    datasetPath: russianDatasetPath,
-    limit: Number(process.env.KB_RUSSIAN_LIMIT || 750),
-  });
+  const russianStart = Date.now();
+  const russianDataset = appendSource(
+    await loadRussianDataset({
+      rootDir,
+      datasetPath: russianDatasetPath,
+      limit: Number(process.env.KB_RUSSIAN_LIMIT || 750),
+    }),
+    "russian"
+  );
+  console.log(
+    `🇷🇺 Загружен русский датасет: ${russianDataset.length} записей за ${Date.now() - russianStart} мс`
+  );
 
-  const knowledgeBase = validateAndEnrichKnowledgeBase([
-    ...projectKnowledgeBase,
-    ...generalKnowledgeBase,
-    ...russianDataset,
-  ]);
+  const knowledgeBase = validateAndEnrichKnowledgeBase(
+    [
+      ...projectKnowledgeBase,
+      ...generalKnowledgeBase,
+      ...russianDataset,
+    ],
+    { withProgress: true }
+  );
 
   return {
     knowledgeBase,
@@ -149,9 +188,23 @@ function createSampleGeneralKnowledgeBase(kbPath) {
   console.log(`📝 Создан пример общей базы знаний: ${kbPath}`);
 }
 
-function validateAndEnrichKnowledgeBase(kb) {
+function appendSource(items, source) {
+  return items.map((item, index) => {
+    const enriched = { ...item, source };
+
+    if ((index + 1) % 1000 === 0) {
+      console.log(
+        `📥 Загружено ${index + 1} записей из источника "${source}" в оперативную память`
+      );
+    }
+
+    return enriched;
+  });
+}
+
+function validateAndEnrichKnowledgeBase(kb, { withProgress = false } = {}) {
   return kb.map((item, index) => {
-    return {
+    const enriched = {
       id: item.id || `auto_${index}`,
       title: item.title || "Без названия",
       aliases: Array.isArray(item.aliases) ? item.aliases : [],
@@ -162,7 +215,16 @@ function validateAndEnrichKnowledgeBase(kb) {
       contentLength: (item.content || "").length,
       aliasCount: Array.isArray(item.aliases) ? item.aliases.length : 0,
       tagCount: Array.isArray(item.tags) ? item.tags.length : 0,
+      source: item.source || "unknown",
     };
+
+    if (withProgress && (index + 1) % 1000 === 0) {
+      console.log(
+        `⚡️ В оперативную память загружено ${index + 1} нормализованных записей`
+      );
+    }
+
+    return enriched;
   });
 }
 
@@ -181,21 +243,27 @@ function createEmptyKnowledgeBase() {
 }
 
 function getKnowledgeBaseCache() {
-  return cachedKnowledgeBase || [];
+  return knowledgeStore.combined || [];
 }
 
 function getKnowledgeBaseStatus() {
-  return knowledgeBaseStatus;
+  return knowledgeStore.status;
 }
 
 function resetKnowledgeBaseCache() {
-  cachedKnowledgeBase = null;
-  cachedSources = {
+  knowledgeStore = {
     projectKnowledgeBase: [],
     generalKnowledgeBase: [],
     russianDataset: [],
+    combined: [],
+    status: "idle",
+    loadedAt: null,
+    loadTimeMs: 0,
   };
-  knowledgeBaseStatus = "idle";
+}
+
+function getKnowledgeStore() {
+  return knowledgeStore;
 }
 
 module.exports = {
@@ -204,6 +272,7 @@ module.exports = {
   getKnowledgeBaseCache,
   getKnowledgeBaseStatus,
   resetKnowledgeBaseCache,
+  getKnowledgeStore,
   validateAndEnrichKnowledgeBase,
   createSampleProjectKnowledgeBase,
   createSampleGeneralKnowledgeBase,

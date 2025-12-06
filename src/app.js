@@ -99,12 +99,12 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(ROOT_DIR, "public/form.html"));
 });
 // Инициализация системы
-function initializeSystem() {
+async function initializeSystem() {
   console.log("🚀 Инициализация расширенной системы ИИ...");
 
   try {
     // Загрузка базы знаний
-    loadKnowledgeBase();
+    await loadKnowledgeBase();
 
     // Инициализация компонентов
     contextManager = new DialogContextManager();
@@ -136,13 +136,13 @@ function initializeSystem() {
   }
 }
 
-function loadKnowledgeBase() {
+async function loadKnowledgeBase() {
   try {
     const {
       projectKnowledgeBase,
       generalKnowledgeBase,
       russianDataset,
-    } = loadKnowledgeBaseService({ rootDir: ROOT_DIR });
+    } = await loadKnowledgeBaseService({ rootDir: ROOT_DIR });
 
     knowledgeBase = getKnowledgeBaseCache();
     global.knowledgeBase = knowledgeBase;
@@ -688,9 +688,9 @@ app.get("/metrics", (req, res) => {
 
 // API для обновления базы знаний (только для разработки)
 if (process.env.NODE_ENV === "development") {
-  app.post("/api/admin/knowledge-base/reload", (req, res) => {
+  app.post("/api/admin/knowledge-base/reload", async (req, res) => {
     try {
-      reloadKnowledgeBaseService({ rootDir: ROOT_DIR });
+      await reloadKnowledgeBaseService({ rootDir: ROOT_DIR });
       knowledgeBase = getKnowledgeBaseCache();
       embeddingRuntime = new LocalEmbeddingRuntime({ knowledgeBase });
       searchEngine = new SemanticSearchEngine(knowledgeBase, {
@@ -752,10 +752,10 @@ app.use((error, req, res, next) => {
 });
 
 // Функция запуска сервера
-function startServer() {
+async function startServer() {
   try {
     // Инициализируем все системы
-    initializeSystem();
+    await initializeSystem();
 
     // Запускаем веб-сервер
     const server = app.listen(PORT, () => {
