@@ -29,6 +29,7 @@ class SemanticSearchEngine {
             hallucinationMinScore: 1.2,
             hallucinationMinCoverage: 0.35,
             semanticCandidateLimit: 200,
+            semanticSearchTimeout: 3000,
             boostFactors: {
                 title: 4.0,
                 aliases: 2.5,
@@ -50,7 +51,7 @@ class SemanticSearchEngine {
             
             // 2. Многоэтапный поиск
             let results = [];
-            
+
             // Этап 1: Точный поиск
             const exactResults = this.performExactSearch(processedQuery, searchOptions);
             results.push(...exactResults);
@@ -60,10 +61,13 @@ class SemanticSearchEngine {
                 const fuzzyResults = this.performFuzzySearch(processedQuery, searchOptions);
                 results.push(...fuzzyResults);
             }
-            
+
             // Этап 3: Семантический поиск
             if (searchOptions.semanticSimilarity && results.length < 8) {
-                const semanticResults = this.performSemanticSearch(processedQuery, searchOptions);
+                const semanticResults = this.performSemanticSearch(processedQuery, {
+                    ...searchOptions,
+                    semanticDeadline: startTime + searchOptions.semanticSearchTimeout
+                });
                 results.push(...semanticResults);
             }
             
@@ -227,6 +231,7 @@ class SemanticSearchEngine {
 
     performSemanticSearch(processedQuery, options) {
         const results = [];
+        const deadline = options.semanticDeadline || (Date.now() + 3000);
         const queryEmbedding = this.embeddingRuntime?.buildQueryEmbedding(processedQuery.originalQuery);
 
         const candidates = this.getSemanticCandidates(
@@ -234,7 +239,11 @@ class SemanticSearchEngine {
             options.semanticCandidateLimit
         );
 
-        candidates.forEach(document => {
+        for (const document of candidates) {
+            if (Date.now() > deadline) {
+                break;
+            }
+
             const semanticScore = queryEmbedding
                 ? this.embeddingRuntime.calculateSimilarityWithEmbedding(queryEmbedding, document)
                 : this.semanticAnalyzer.calculateSimilarity(
@@ -250,7 +259,7 @@ class SemanticSearchEngine {
                     scoreBreakdown: { semantic: semanticScore }
                 });
             }
-        });
+        }
 
         return results;
     }
