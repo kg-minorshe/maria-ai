@@ -50,7 +50,13 @@ class LocalEmbeddingRuntime {
     }
 
     const cached = this.cache.get(normalizedText);
-    if (cached) return cached;
+    if (cached) {
+      logDebug("EmbeddingRuntime", "Кэшированный эмбеддинг", {
+        tokenCount: cached.length,
+        cached: true,
+      });
+      return cached;
+    }
 
     const embedStart = Date.now();
     const tokens = this.tokenize(normalizedText);
