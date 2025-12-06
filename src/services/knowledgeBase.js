@@ -7,13 +7,15 @@ const {
   countKnowledgeBaseEntries,
 } = require("./knowledgeBaseStorage");
 
-let cachedKnowledgeBase = null;
-let cachedSources = {
+let knowledgeStore = {
   projectKnowledgeBase: [],
   generalKnowledgeBase: [],
   russianDataset: [],
+  combined: [],
+  status: "idle",
+  loadedAt: null,
+  loadTimeMs: 0,
 };
-let knowledgeBaseStatus = "idle";
 
 function resolveKnowledgePaths(rootDir) {
   const knowledgeDir = path.join(rootDir, "data", "knowledge");
@@ -25,14 +27,16 @@ function resolveKnowledgePaths(rootDir) {
 }
 
 async function loadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
-  if (cachedKnowledgeBase) {
+  if (knowledgeStore.status === "ready" && knowledgeStore.combined.length) {
     console.log(
-      `ℹ️  Используется предзагруженная база знаний в памяти (${cachedKnowledgeBase.length} статей)`
+      `ℹ️  Используется предзагруженная база знаний в памяти (${knowledgeStore.combined.length} статей)`
     );
 
     return {
-      knowledgeBase: cachedKnowledgeBase,
-      ...cachedSources,
+      knowledgeBase: knowledgeStore.combined,
+      projectKnowledgeBase: knowledgeStore.projectKnowledgeBase,
+      generalKnowledgeBase: knowledgeStore.generalKnowledgeBase,
+      russianDataset: knowledgeStore.russianDataset,
     };
   }
 
@@ -41,7 +45,9 @@ async function loadKnowledgeBase({ projectPath, generalPath, rootDir = path.reso
 
 async function reloadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
   console.log("⏳ Предзагрузка базы знаний в оперативную память...");
-  knowledgeBaseStatus = "loading";
+  knowledgeStore.status = "loading";
+
+  const loadStart = Date.now();
 
   const loaded = await loadKnowledgeBaseFromStorage({
     projectPath,
@@ -49,21 +55,26 @@ async function reloadKnowledgeBase({ projectPath, generalPath, rootDir = path.re
     rootDir,
   });
 
-  cachedKnowledgeBase = loaded.knowledgeBase;
-  cachedSources = {
+  knowledgeStore = {
+    ...knowledgeStore,
+    combined: loaded.knowledgeBase,
     projectKnowledgeBase: loaded.projectKnowledgeBase,
     generalKnowledgeBase: loaded.generalKnowledgeBase,
     russianDataset: loaded.russianDataset,
+    status: "ready",
+    loadedAt: new Date(),
+    loadTimeMs: Date.now() - loadStart,
   };
-  knowledgeBaseStatus = "ready";
 
   console.log(
-    `✅ База знаний загружена в память (${cachedKnowledgeBase.length} статей, статус: ${knowledgeBaseStatus})`
+    `✅ База знаний загружена в память (${knowledgeStore.combined.length} статей, статус: ${knowledgeStore.status}, время: ${knowledgeStore.loadTimeMs} мс)`
   );
 
   return {
-    knowledgeBase: cachedKnowledgeBase,
-    ...cachedSources,
+    knowledgeBase: knowledgeStore.combined,
+    projectKnowledgeBase: knowledgeStore.projectKnowledgeBase,
+    generalKnowledgeBase: knowledgeStore.generalKnowledgeBase,
+    russianDataset: knowledgeStore.russianDataset,
   };
 }
 
@@ -74,6 +85,7 @@ async function loadKnowledgeBaseFromStorage({ projectPath, generalPath, rootDir 
   const resolvedGeneralPath = generalPath || process.env.KB_GENERAL_PATH || paths.general;
   const russianDatasetPath = process.env.KB_RUSSIAN_PATH;
 
+  const projectStart = Date.now();
   const projectKnowledgeBase = appendSource(
     loadKnowledgeBaseFile(
       resolvedProjectPath,
@@ -82,7 +94,11 @@ async function loadKnowledgeBaseFromStorage({ projectPath, generalPath, rootDir 
     ),
     "project"
   );
+  console.log(
+    `📚 Загружена проектная база знаний: ${projectKnowledgeBase.length} записей за ${Date.now() - projectStart} мс`
+  );
 
+  const generalStart = Date.now();
   const generalKnowledgeBase = appendSource(
     loadKnowledgeBaseFile(
       resolvedGeneralPath,
@@ -91,7 +107,11 @@ async function loadKnowledgeBaseFromStorage({ projectPath, generalPath, rootDir 
     ),
     "general"
   );
+  console.log(
+    `📖 Загружена общая база знаний: ${generalKnowledgeBase.length} записей за ${Date.now() - generalStart} мс`
+  );
 
+  const russianStart = Date.now();
   const russianDataset = appendSource(
     await loadRussianDataset({
       rootDir,
@@ -99,6 +119,9 @@ async function loadKnowledgeBaseFromStorage({ projectPath, generalPath, rootDir 
       limit: Number(process.env.KB_RUSSIAN_LIMIT || 750),
     }),
     "russian"
+  );
+  console.log(
+    `🇷🇺 Загружен русский датасет: ${russianDataset.length} записей за ${Date.now() - russianStart} мс`
   );
 
   const knowledgeBase = validateAndEnrichKnowledgeBase(
@@ -109,8 +132,6 @@ async function loadKnowledgeBaseFromStorage({ projectPath, generalPath, rootDir 
     ],
     { withProgress: true }
   );
-
-  await saveKnowledgeBaseEntries(knowledgeBase);
 
   return {
     knowledgeBase,
@@ -227,21 +248,27 @@ function createEmptyKnowledgeBase() {
 }
 
 function getKnowledgeBaseCache() {
-  return cachedKnowledgeBase || [];
+  return knowledgeStore.combined || [];
 }
 
 function getKnowledgeBaseStatus() {
-  return knowledgeBaseStatus;
+  return knowledgeStore.status;
 }
 
 function resetKnowledgeBaseCache() {
-  cachedKnowledgeBase = null;
-  cachedSources = {
+  knowledgeStore = {
     projectKnowledgeBase: [],
     generalKnowledgeBase: [],
     russianDataset: [],
+    combined: [],
+    status: "idle",
+    loadedAt: null,
+    loadTimeMs: 0,
   };
-  knowledgeBaseStatus = "idle";
+}
+
+function getKnowledgeStore() {
+  return knowledgeStore;
 }
 
 module.exports = {
@@ -250,6 +277,7 @@ module.exports = {
   getKnowledgeBaseCache,
   getKnowledgeBaseStatus,
   resetKnowledgeBaseCache,
+  getKnowledgeStore,
   validateAndEnrichKnowledgeBase,
   createSampleProjectKnowledgeBase,
   createSampleGeneralKnowledgeBase,

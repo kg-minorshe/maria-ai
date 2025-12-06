@@ -108,9 +108,18 @@ class SemanticSearchEngine {
     }
 
     buildSearchIndex() {
-        console.log('Построение поискового индекса...');
-        
-        this.knowledgeBase.forEach((document, index) => {
+        const totalDocs = this.knowledgeBase.length;
+        const startTime = Date.now();
+
+        if (totalDocs === 0) {
+            console.log('Построение поискового индекса пропущено: база знаний пуста');
+            return;
+        }
+
+        console.log(`Построение поискового индекса... (${totalDocs} документов)`);
+
+        for (let index = 0; index < totalDocs; index++) {
+            const document = this.knowledgeBase[index];
             document.id = document.id || `doc_${index}`;
             
             // Индексируем все текстовые поля
@@ -128,7 +137,7 @@ class SemanticSearchEngine {
                 if (!this.indexCache.has(token)) {
                     this.indexCache.set(token, []);
                 }
-                
+
                 const docList = this.indexCache.get(token);
                 if (!docList.find(d => d.id === document.id)) {
                     docList.push({
@@ -138,9 +147,18 @@ class SemanticSearchEngine {
                     });
                 }
             });
-        });
 
-        console.log(`Индекс построен. Уникальных токенов: ${this.indexCache.size}`);
+            if ((index + 1) % 1000 === 0 || index + 1 === totalDocs) {
+                const progress = (((index + 1) / totalDocs) * 100).toFixed(1);
+                console.log(
+                    `   Индексировано ${index + 1}/${totalDocs} документов (${progress}%), уникальных токенов: ${this.indexCache.size}`
+                );
+            }
+        }
+
+        console.log(
+            `Индекс построен. Уникальных токенов: ${this.indexCache.size}. Время: ${Date.now() - startTime} мс`
+        );
     }
 
     preprocessQuery(query, context) {
