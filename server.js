@@ -101,54 +101,90 @@ function initializeSystem() {
 
 function loadKnowledgeBase() {
   try {
-    const kbPath =
-      process.env.KB_PATH || path.join(__dirname, "knowledge-base.json");
+    const projectKbPath =
+      process.env.KB_PROJECT_PATH ||
+      path.join(__dirname, "knowledge-base-project.json");
+    const generalKbPath =
+      process.env.KB_GENERAL_PATH ||
+      path.join(__dirname, "knowledge-base-general.json");
 
-    if (!fs.existsSync(kbPath)) {
-      console.warn("⚠️  Файл базы знаний не найден. Создаю пример...");
-      createSampleKnowledgeBase(kbPath);
-    }
-
-    const data = fs.readFileSync(kbPath, "utf8");
-    knowledgeBase = JSON.parse(data);
+    const projectKnowledgeBase = loadKnowledgeBaseFile(
+      projectKbPath,
+      createSampleProjectKnowledgeBase,
+      "проектная база знаний"
+    );
+    const generalKnowledgeBase = loadKnowledgeBaseFile(
+      generalKbPath,
+      createSampleGeneralKnowledgeBase,
+      "общая база знаний"
+    );
 
     // Валидация и обогащение данных
-    knowledgeBase = validateAndEnrichKnowledgeBase(knowledgeBase);
+    knowledgeBase = validateAndEnrichKnowledgeBase([
+      ...projectKnowledgeBase,
+      ...generalKnowledgeBase,
+    ]);
 
     global.knowledgeBase = knowledgeBase;
-    console.log(`📚 База знаний загружена: ${knowledgeBase.length} статей`);
+    console.log(
+      `📚 База знаний загружена: ${knowledgeBase.length} статей (проект: ${projectKnowledgeBase.length}, общие темы: ${generalKnowledgeBase.length})`
+    );
   } catch (error) {
     console.error("❌ Ошибка загрузки базы знаний:", error.message);
     knowledgeBase = createEmptyKnowledgeBase();
   }
 }
 
-function createSampleKnowledgeBase(kbPath) {
+function loadKnowledgeBaseFile(filePath, sampleCreator, label) {
+  if (!fs.existsSync(filePath)) {
+    console.warn(`⚠️  ${label} не найдена. Создаю пример...`);
+    sampleCreator(filePath);
+  }
+
+  const data = fs.readFileSync(filePath, "utf8");
+  const parsed = JSON.parse(data);
+
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${label} должна быть массивом статей`);
+  }
+
+  return parsed;
+}
+
+function createSampleProjectKnowledgeBase(kbPath) {
   const sampleKB = [
     {
-      id: "1",
-      title: "Искусственный интеллект",
-      aliases: ["ИИ", "AI", "машинный интеллект"],
+      id: "proj_001",
+      title: "Общая информация о проекте",
+      aliases: ["мой проект", "основы проекта"],
       content:
-        "Искусственный интеллект — это область компьютерных наук, которая занимается созданием интеллектуальных машин, способных работать и реагировать как люди. ИИ включает в себя машинное обучение, глубокое обучение, обработку естественного языка и компьютерное зрение.",
-      tags: ["технологии", "компьютерные науки", "автоматизация"],
-      category: "технологии",
-      lastUpdated: "2024-01-15",
-    },
-    {
-      id: "2",
-      title: "Машинное обучение",
-      aliases: ["ML", "machine learning"],
-      content:
-        "Машинное обучение — это подмножество искусственного интеллекта, которое предоставляет системам способность автоматически учиться и улучшаться на основе опыта без явного программирования. ML фокусируется на разработке компьютерных программ, которые могут получать доступ к данным и использовать их для самообучения.",
-      tags: ["ИИ", "данные", "алгоритмы", "автоматизация"],
-      category: "технологии",
-      lastUpdated: "2024-01-15",
+        "Эта база знаний хранит сведения, относящиеся к вашему проекту. Добавляйте сюда все материалы, которые должны использоваться ассистентом при ответах о продукте, команде и технологиях.",
+      tags: ["проект", "основы", "структура"],
+      category: "Проект",
+      lastUpdated: new Date().toISOString().split("T")[0],
     },
   ];
 
   fs.writeFileSync(kbPath, JSON.stringify(sampleKB, null, 2));
-  console.log(`📝 Создан примерный файл базы знаний: ${kbPath}`);
+  console.log(`📝 Создан пример проектной базы знаний: ${kbPath}`);
+}
+
+function createSampleGeneralKnowledgeBase(kbPath) {
+  const sampleKB = [
+    {
+      id: "gen_001",
+      title: "Общие сведения об искусственном интеллекте",
+      aliases: ["что такое ИИ", "определение искусственного интеллекта", "AI"],
+      content:
+        "Искусственный интеллект (ИИ) — область информатики, посвящённая созданию систем, способных выполнять задачи, требующие человеческого интеллекта. Ключевые направления включают машинное обучение, обработку естественного языка, компьютерное зрение и экспертные системы.",
+      tags: ["ИИ", "искусственный интеллект", "машинное обучение", "основы"],
+      category: "Общие темы",
+      lastUpdated: new Date().toISOString().split("T")[0],
+    },
+  ];
+
+  fs.writeFileSync(kbPath, JSON.stringify(sampleKB, null, 2));
+  console.log(`📝 Создан пример общей базы знаний: ${kbPath}`);
 }
 
 function validateAndEnrichKnowledgeBase(kb) {
@@ -720,13 +756,15 @@ app.post("/api/chat/query", async (req, res) => {
     }
 
     // 7. Применяем reasoning если нужно с защитой от ошибок
+    const needsReasoning =
+      queryAnalysis.intent?.intent === "reason" ||
+      queryAnalysis.requiresReasoning ||
+      queryAnalysis.isComplex ||
+      /почему|зачем|как\s+так|каким\s+образом/i.test(resolvedMessage);
+
     let reasoningResult = null;
     try {
-      if (
-        queryAnalysis.intent?.intent === "reason" ||
-        message.includes("почему") ||
-        message.includes("как так")
-      ) {
+      if (needsReasoning) {
         reasoningResult = reasoningEngine.reason(
           resolvedMessage,
           context,

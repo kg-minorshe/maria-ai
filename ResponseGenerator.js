@@ -113,6 +113,17 @@ class ResponseGenerator {
                     response.sources = searchResults.slice(0, 3).map(r => this.createSourceInfo(r));
             }
 
+            // 4. Сводим информацию из нескольких источников и добавляем рассуждения
+            const crossSourceInsight = this.synthesizeCrossSourceSummary(searchResults);
+            if (crossSourceInsight) {
+                response.answer = `${response.answer}\n\n${crossSourceInsight}`;
+            }
+
+            if (context.reasoningResult) {
+                response.answer = this.appendReasoningContext(response.answer, context.reasoningResult);
+                response.responseMetadata.reasoning = context.reasoningResult;
+            }
+
             // 4. Добавляем эмоционально окрашенное приветствие
             if (response.answer && !response.answer.startsWith("К сожалению") && !response.answer.startsWith("Уточните")) {
                 const greeting = this.getContextualGreeting(context);
@@ -123,14 +134,17 @@ class ResponseGenerator {
             response.followUp = this.generateIntelligentFollowUp(queryAnalysis, searchResults, context, response.responseType);
 
             // 6. Рассчитываем уверенность ответа
-            response.confidence = this.calculateResponseConfidence(queryAnalysis, searchResults, response, context);
+            const baseConfidence = this.calculateResponseConfidence(queryAnalysis, searchResults, response, context);
+            response.confidence = this.calibrateConfidence(baseConfidence, queryAnalysis, searchResults, context);
 
             // 7. Добавляем метаданные
             response.responseMetadata = {
+                ...(response.responseMetadata || {}),
                 processingTime: Date.now() - startTime,
                 wordsCount: response.answer.split(' ').length,
                 sourcesUsed: response.sources.length,
-                responseComplexity: this.assessResponseComplexity(response.answer)
+                responseComplexity: this.assessResponseComplexity(response.answer),
+                reasoningUsed: Boolean(context.reasoningResult)
             };
 
         } catch (error) {
@@ -772,6 +786,35 @@ class ResponseGenerator {
         return followUp.slice(0, 2); // максимум 2 дополнительных вопроса
     }
 
+    synthesizeCrossSourceSummary(searchResults) {
+        if (!Array.isArray(searchResults) || searchResults.length < 2) return null;
+
+        const topResults = searchResults.slice(0, 3);
+        const summaryPieces = topResults.map((result, index) => {
+            const lead = index === 0 ? "Ключевой источник" : `Источник ${index + 1}`;
+            const snippet = this.formatSummary(result.document, {}, 'brief');
+            return `${lead}: ${snippet}`;
+        });
+
+        return summaryPieces.length > 0
+            ? `Сводка по нескольким источникам:\n- ${summaryPieces.join('\n- ')}`
+            : null;
+    }
+
+    appendReasoningContext(answer, reasoningResult) {
+        if (!reasoningResult?.reasoningChain || reasoningResult.reasoningChain.length === 0) {
+            return answer;
+        }
+
+        const chain = reasoningResult.reasoningChain
+            .slice(0, 4)
+            .map((step, idx) => `${idx + 1}. ${step.step}`)
+            .join('\n');
+
+        const conclusion = reasoningResult.conclusion || 'Сформулирован вывод по рассуждению.';
+        return `${answer}\n\nЛогика рассуждения:\n${chain}\n\nВывод: ${conclusion}`;
+    }
+
     calculateResponseConfidence(queryAnalysis, searchResults, response, context) {
         let confidence = 0.5; // базовая
 
@@ -804,6 +847,28 @@ class ResponseGenerator {
         }
 
         return Math.max(0.15, Math.min(confidence, 0.95));
+    }
+
+    calibrateConfidence(baseConfidence, queryAnalysis, searchResults, context) {
+        let confidence = baseConfidence;
+
+        if (context.reasoningResult?.confidence) {
+            confidence += context.reasoningResult.confidence * 0.2;
+        }
+
+        if (searchResults.length === 0) {
+            confidence -= 0.15;
+        }
+
+        if (queryAnalysis.ambiguity?.clarificationNeeded?.length) {
+            confidence -= 0.1;
+        }
+
+        if (queryAnalysis.intent?.intent === 'comparison' && searchResults.length >= 2) {
+            confidence += 0.05;
+        }
+
+        return Math.max(0.1, Math.min(confidence, 0.97));
     }
 
     // Утилиты
