@@ -223,7 +223,6 @@
     "source-map": "^0.7.6",
     "sparse-bitfield": "^3.0.3",
     "split": "^1.0.1",
-    "sqlite3": "^5.1.7",
     "sqlstring": "^2.3.3",
     "statuses": "^2.0.2",
     "store": "^2.0.12",

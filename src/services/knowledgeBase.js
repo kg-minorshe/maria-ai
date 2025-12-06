@@ -68,64 +68,47 @@ async function reloadKnowledgeBase({ projectPath, generalPath, rootDir = path.re
 }
 
 async function loadKnowledgeBaseFromStorage({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
-  const dbCount = await countKnowledgeBaseEntries();
-
-  if (dbCount > 0) {
-    console.log(
-      `💾 Найдено ${dbCount} записей в базе данных. Использую данные SQLite без перечитывания файлов.`
-    );
-
-    const entries = validateAndEnrichKnowledgeBase(
-      await loadKnowledgeBaseFromDb()
-    );
-
-    const projectKnowledgeBase = entries.filter(
-      (entry) => entry.source === "project"
-    );
-    const generalKnowledgeBase = entries.filter(
-      (entry) => entry.source === "general"
-    );
-    const russianDataset = entries.filter(
-      (entry) => entry.source === "russian"
-    );
-
-    return {
-      knowledgeBase: entries,
-      projectKnowledgeBase,
-      generalKnowledgeBase,
-      russianDataset,
-    };
-  }
-
   const paths = resolveKnowledgePaths(rootDir);
 
   const resolvedProjectPath = projectPath || process.env.KB_PROJECT_PATH || paths.project;
   const resolvedGeneralPath = generalPath || process.env.KB_GENERAL_PATH || paths.general;
   const russianDatasetPath = process.env.KB_RUSSIAN_PATH;
 
-  const projectKnowledgeBase = loadKnowledgeBaseFile(
-    resolvedProjectPath,
-    createSampleProjectKnowledgeBase,
-    "проектная база знаний"
-  ).map((item) => ({ ...item, source: "project" }));
+  const projectKnowledgeBase = appendSource(
+    loadKnowledgeBaseFile(
+      resolvedProjectPath,
+      createSampleProjectKnowledgeBase,
+      "проектная база знаний"
+    ),
+    "project"
+  );
 
-  const generalKnowledgeBase = loadKnowledgeBaseFile(
-    resolvedGeneralPath,
-    createSampleGeneralKnowledgeBase,
-    "общая база знаний"
-  ).map((item) => ({ ...item, source: "general" }));
+  const generalKnowledgeBase = appendSource(
+    loadKnowledgeBaseFile(
+      resolvedGeneralPath,
+      createSampleGeneralKnowledgeBase,
+      "общая база знаний"
+    ),
+    "general"
+  );
 
-  const russianDataset = loadRussianDataset({
-    rootDir,
-    datasetPath: russianDatasetPath,
-    limit: Number(process.env.KB_RUSSIAN_LIMIT || 750),
-  }).map((item) => ({ ...item, source: "russian" }));
+  const russianDataset = appendSource(
+    await loadRussianDataset({
+      rootDir,
+      datasetPath: russianDatasetPath,
+      limit: Number(process.env.KB_RUSSIAN_LIMIT || 750),
+    }),
+    "russian"
+  );
 
-  const knowledgeBase = validateAndEnrichKnowledgeBase([
-    ...projectKnowledgeBase,
-    ...generalKnowledgeBase,
-    ...russianDataset,
-  ]);
+  const knowledgeBase = validateAndEnrichKnowledgeBase(
+    [
+      ...projectKnowledgeBase,
+      ...generalKnowledgeBase,
+      ...russianDataset,
+    ],
+    { withProgress: true }
+  );
 
   await saveKnowledgeBaseEntries(knowledgeBase);
 
@@ -189,9 +172,23 @@ function createSampleGeneralKnowledgeBase(kbPath) {
   console.log(`📝 Создан пример общей базы знаний: ${kbPath}`);
 }
 
-function validateAndEnrichKnowledgeBase(kb) {
+function appendSource(items, source) {
+  return items.map((item, index) => {
+    const enriched = { ...item, source };
+
+    if ((index + 1) % 1000 === 0) {
+      console.log(
+        `📥 Загружено ${index + 1} записей из источника "${source}" в оперативную память`
+      );
+    }
+
+    return enriched;
+  });
+}
+
+function validateAndEnrichKnowledgeBase(kb, { withProgress = false } = {}) {
   return kb.map((item, index) => {
-    return {
+    const enriched = {
       id: item.id || `auto_${index}`,
       title: item.title || "Без названия",
       aliases: Array.isArray(item.aliases) ? item.aliases : [],
@@ -204,6 +201,14 @@ function validateAndEnrichKnowledgeBase(kb) {
       tagCount: Array.isArray(item.tags) ? item.tags.length : 0,
       source: item.source || "unknown",
     };
+
+    if (withProgress && (index + 1) % 1000 === 0) {
+      console.log(
+        `⚡️ В оперативную память загружено ${index + 1} нормализованных записей`
+      );
+    }
+
+    return enriched;
   });
 }
 
