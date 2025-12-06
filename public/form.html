@@ -198,6 +198,28 @@
         font-size: 0.92rem;
       }
 
+      .pipeline-status {
+        margin-top: 10px;
+        padding: 10px 12px;
+        background: #eef2ff;
+        border-radius: 12px;
+        border: 1px solid #c7d2fe;
+        font-size: 0.92rem;
+        color: var(--text);
+      }
+
+      .pipeline-status strong {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: #312e81;
+      }
+
+      .pipeline-status ul {
+        margin: 8px 0 0 18px;
+        padding: 0;
+      }
+
       .sources-title {
         font-weight: 700;
         color: #166534;
@@ -794,6 +816,10 @@
         isProcessing = true;
         sendButton.disabled = true;
 
+        // Добавляем таймаут, чтобы индикатор «Мария думает» не зависал бесконечно
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000);
+
         try {
           // Отправляем запрос на сервер
           const response = await fetch("/api/chat/query", {
@@ -802,6 +828,7 @@
               "Content-Type": "application/json",
             },
             body: JSON.stringify({ message }),
+            signal: controller.signal,
           });
 
           const data = await response.json();
@@ -816,12 +843,20 @@
           processAIResponse(data);
         } catch (error) {
           console.error("Ошибка отправки сообщения:", error);
-          addMessageToChat(
-            "bot",
-            "Извините, произошла ошибка при обработке вашего запроса. " +
-              "Пожалуйста, попробуйте еще раз или обратитесь к системному администратору."
-          );
+          if (error.name === "AbortError") {
+            addMessageToChat(
+              "bot",
+              "Похоже, ответ занял слишком много времени. Попробуйте ещё раз или сформулируйте вопрос проще."
+            );
+          } else {
+            addMessageToChat(
+              "bot",
+              "Извините, произошла ошибка при обработке вашего запроса. " +
+                "Пожалуйста, попробуйте еще раз или обратитесь к системному администратору."
+            );
+          }
         } finally {
+          clearTimeout(timeoutId);
           // Скрываем индикатор набора и включаем кнопку
           hideTypingIndicator();
           isProcessing = false;
@@ -935,7 +970,7 @@
         return div.innerHTML;
       }
 
-      // Также обновите функцию addMessageToChat для поддержки markdown:
+      // Функция добавления сообщений с поддержкой markdown и статуса обработки
       function addMessageToChat(sender, content, data = null) {
         const messageDiv = document.createElement("div");
         messageDiv.className = `message ${sender}-message`;
@@ -975,6 +1010,48 @@
                 Уверенность ответа: ${confidencePercent}%
             </div>
         `;
+        }
+
+        // Показываем статус прохождения пайплайна, если он пришёл в ответе
+        if (data?.pipelineStatus) {
+          const status = data.pipelineStatus;
+          const stepLabels = {
+            validation: "Валидация",
+            contextLoaded: "Контекст",
+            emotionalAnalysis: "Эмоциональный анализ",
+            reasoning: "Reasoning",
+            search: "Поиск",
+            responseGenerated: "Ответ сформирован",
+          };
+
+          const stepList = status.steps
+            ? Object.entries(status.steps)
+                .map(
+                  ([key, value]) =>
+                    `<li>${stepLabels[key] || key}: ${
+                      value === true
+                        ? "ok"
+                        : value === false
+                        ? "пропущено"
+                        : value
+                    }</li>`
+                )
+                .join("")
+            : "";
+
+          const statusLabel =
+            status.status === "completed" ? "завершено" : "ошибка";
+
+          messageContent += `
+            <div class="pipeline-status">
+              <strong><i class="fas fa-tasks"></i> Статус обработки: ${statusLabel}</strong>
+              <div>${status.message || "Внутренний статус недоступен"}</div>
+              <div style="font-size: 0.85rem; color: #4b5563;">
+                Время обработки: ${status.processingTime || data.processingTime || 0} мс
+              </div>
+              ${stepList ? `<ul>${stepList}</ul>` : ""}
+            </div>
+          `;
         }
 
         messageDiv.innerHTML = `
@@ -1165,61 +1242,6 @@
         chatMessages.insertBefore(alertDiv, typingIndicator);
       }
 
-      // Добавить сообщение в чат
-      function addMessageToChat(sender, content, data = null) {
-        const messageDiv = document.createElement("div");
-        messageDiv.className = `message ${sender}-message`;
-
-        const senderName =
-          sender === "user"
-            ? `<i class="fas fa-user"></i> Вы`
-            : `<i class="fas fa-robot"></i> ${
-                data?.assistant || "Мария Cognitive AI"
-              }`;
-
-        let messageContent = `<div class="message-content">${content}</div>`;
-
-        // Добавляем источники, если есть
-        if (data?.sources && data.sources.length > 0) {
-          messageContent += `
-                    <div class="sources">
-                        <div class="sources-title"><i class="fas fa-book"></i> Источники:</div>
-                        ${data.sources
-                          .map(
-                            (source) =>
-                              `<div class="source-item">${
-                                source.title || source
-                              }</div>`
-                          )
-                          .join("")}
-                    </div>
-                `;
-        }
-
-        // Добавляем confidence bar, если есть
-        if (data?.confidence) {
-          const confidencePercent = Math.round(data.confidence * 100);
-          messageContent += `
-                    <div class="confidence-bar">
-                        <div class="confidence-fill" style="width: ${confidencePercent}%"></div>
-                    </div>
-                    <div style="font-size: 0.8em; margin-top: 5px; color: #666;">
-                        Уверенность ответа: ${confidencePercent}%
-                    </div>
-                `;
-        }
-
-        messageDiv.innerHTML = `
-                <div class="message-sender">${senderName}</div>
-                ${messageContent}
-                <div class="message-time">${formatTime(new Date())}</div>
-            `;
-
-        chatMessages.appendChild(messageDiv);
-
-        // Прокручиваем вниз
-        scrollToBottom();
-      }
 
       // Показать индикатор набора
       function showTypingIndicator() {

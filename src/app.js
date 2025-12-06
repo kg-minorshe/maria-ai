@@ -537,6 +537,21 @@ app.post("/api/chat/query", async (req, res) => {
         reasoningType: reasoningResult.reasoningType,
       }),
 
+      pipelineStatus: {
+        status: "completed",
+        message: "Ответ сформирован и отправлен пользователю",
+        processingTime: Date.now() - processingStart,
+        steps: {
+          validation: true,
+          contextLoaded: Boolean(dialogContext),
+          emotionalAnalysis: Boolean(emotionalAnalysis),
+          reasoning: needsReasoning ? "applied" : "skipped",
+          search: Boolean(searchResults),
+          responseGenerated: Boolean(response?.answer),
+        },
+        reasoningType: reasoningResult?.reasoningType || "none",
+      },
+
       processingTime: Date.now() - processingStart,
       sessionId: sessionId,
     };
@@ -558,6 +573,20 @@ app.post("/api/chat/query", async (req, res) => {
       timestamp: new Date().toISOString(),
       sessionId: req.session.id,
       processingTime: Date.now() - processingStart,
+      pipelineStatus: {
+        status: "failed",
+        message: "Произошла ошибка при обработке запроса",
+        processingTime: Date.now() - processingStart,
+        steps: {
+          validation: true,
+          contextLoaded: false,
+          emotionalAnalysis: false,
+          reasoning: "skipped",
+          search: false,
+          responseGenerated: false,
+        },
+        reasoningType: "none",
+      },
     });
   }
 });
