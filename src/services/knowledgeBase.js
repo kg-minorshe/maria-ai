@@ -1,6 +1,11 @@
 const fs = require("fs");
 const path = require("path");
 const { loadRussianDataset } = require("./russianDatasetLoader");
+const {
+  saveKnowledgeBaseEntries,
+  loadKnowledgeBaseFromDb,
+  countKnowledgeBaseEntries,
+} = require("./knowledgeBaseStorage");
 
 let knowledgeStore = {
   projectKnowledgeBase: [],
