@@ -9,7 +9,15 @@
   node scripts/download_sberquad.js --outDir data/downloads/sberquad
   ```
 
-  По умолчанию скрипт скачивает архив с Hugging Face (`https://huggingface.co/datasets/ai-forever/sberquad/resolve/main/sberquad.tar.gz?download=1`), автоматически следует HTTP‑редиректам и при неудаче пробует запасной URL `https://huggingface.co/datasets/ai-forever/sberquad/resolve/main/sberquad.tar.gz`. При желании вы можете передать свой источник через `--url <ссылка>`.
+  По умолчанию скрипт скачивает архив с Hugging Face (`https://huggingface.co/datasets/ai-forever/sberquad/resolve/main/sberquad.tar.gz?download=1`), автоматически следует HTTP‑редиректам и при неудаче пробует запасной URL `https://huggingface.co/datasets/ai-forever/sberquad/resolve/main/sberquad.tar.gz`. Если сервер Hugging Face требует авторизацию (401), передайте токен через `--token <HF_TOKEN>` или переменные окружения `HF_TOKEN`/`HUGGINGFACE_TOKEN` — скрипт проставит `Authorization: Bearer`. При желании вы можете передать свой источник через `--url <ссылка>`.
+
+- **Альтернатива без архива:** универсальный загрузчик русских датасетов без внешних API:
+
+  ```bash
+  node scripts/download_russian_datasets.js --dataset sberquad --outDir data/downloads --token <HF_TOKEN>
+  ```
+
+  Скрипт качает SberQuAD (и TyDiQA RU) пофайлово, поэтому даже при недоступности архива вы получите `train-v1.1.json` и `dev-v1.1.json`.
 
 - После скачивания возьмите файл `train-v1.1.json` или `dev-v1.1.json` и сконвертируйте его в JSONL формата базы знаний.
 
