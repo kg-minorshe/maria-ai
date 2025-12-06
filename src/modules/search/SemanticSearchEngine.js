@@ -18,9 +18,10 @@ class SemanticSearchEngine {
         // Предварительная индексация
         this.buildSearchIndex();
 
-        if (this.embeddingRuntime) {
-            this.embeddingRuntime.indexKnowledgeBase(this.knowledgeBase);
-        }
+        this.embeddingReady = this.embeddingRuntime?.indexKnowledgeBase
+            ? Promise.resolve(this.embeddingRuntime.indexKnowledgeBase(this.knowledgeBase))
+                .catch(error => logError("SemanticSearch", "Ошибка индексации эмбеддингов", { error: error.message }))
+            : Promise.resolve();
     }
 
     async search(query, context = {}, options = {}) {
@@ -279,7 +280,10 @@ class SemanticSearchEngine {
         const results = [];
         const deadline = options.semanticDeadline || (Date.now() + 3000);
         const embedStart = Date.now();
-        const queryEmbedding = this.embeddingRuntime?.buildQueryEmbedding(processedQuery.originalQuery);
+        await this.embeddingReady;
+        const queryEmbedding = this.embeddingRuntime
+            ? await this.embeddingRuntime.buildQueryEmbedding(processedQuery.originalQuery)
+            : undefined;
         const embedDuration = Date.now() - embedStart;
         logDebug("SemanticSearch", "Эмбеддинг запроса получен", {
             durationMs: embedDuration,
@@ -349,8 +353,8 @@ class SemanticSearchEngine {
             }
 
             const semanticScore = queryEmbedding
-                ? this.embeddingRuntime.calculateSimilarityWithEmbedding(queryEmbedding, document)
-                : this.semanticAnalyzer.calculateSimilarity(
+                ? await this.embeddingRuntime.calculateSimilarityWithEmbedding(queryEmbedding, document)
+                : await this.semanticAnalyzer.calculateSimilarity(
                     processedQuery.originalQuery,
                     document.content
                 );
