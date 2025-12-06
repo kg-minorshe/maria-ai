@@ -1,6 +1,11 @@
 const fs = require("fs");
 const path = require("path");
 const { loadRussianDataset } = require("./russianDatasetLoader");
+const {
+  saveKnowledgeBaseEntries,
+  loadKnowledgeBaseFromDb,
+  countKnowledgeBaseEntries,
+} = require("./knowledgeBaseStorage");
 
 let cachedKnowledgeBase = null;
 let cachedSources = {
@@ -19,7 +24,7 @@ function resolveKnowledgePaths(rootDir) {
   };
 }
 
-function loadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
+async function loadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
   if (cachedKnowledgeBase) {
     console.log(
       `ℹ️  Используется предзагруженная база знаний в памяти (${cachedKnowledgeBase.length} статей)`
@@ -34,11 +39,15 @@ function loadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__
   return reloadKnowledgeBase({ projectPath, generalPath, rootDir });
 }
 
-function reloadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
+async function reloadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
   console.log("⏳ Предзагрузка базы знаний в оперативную память...");
   knowledgeBaseStatus = "loading";
 
-  const loaded = loadKnowledgeBaseFromDisk({ projectPath, generalPath, rootDir });
+  const loaded = await loadKnowledgeBaseFromStorage({
+    projectPath,
+    generalPath,
+    rootDir,
+  });
 
   cachedKnowledgeBase = loaded.knowledgeBase;
   cachedSources = {
@@ -58,7 +67,36 @@ function reloadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(
   };
 }
 
-function loadKnowledgeBaseFromDisk({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
+async function loadKnowledgeBaseFromStorage({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
+  const dbCount = await countKnowledgeBaseEntries();
+
+  if (dbCount > 0) {
+    console.log(
+      `💾 Найдено ${dbCount} записей в базе данных. Использую данные SQLite без перечитывания файлов.`
+    );
+
+    const entries = validateAndEnrichKnowledgeBase(
+      await loadKnowledgeBaseFromDb()
+    );
+
+    const projectKnowledgeBase = entries.filter(
+      (entry) => entry.source === "project"
+    );
+    const generalKnowledgeBase = entries.filter(
+      (entry) => entry.source === "general"
+    );
+    const russianDataset = entries.filter(
+      (entry) => entry.source === "russian"
+    );
+
+    return {
+      knowledgeBase: entries,
+      projectKnowledgeBase,
+      generalKnowledgeBase,
+      russianDataset,
+    };
+  }
+
   const paths = resolveKnowledgePaths(rootDir);
 
   const resolvedProjectPath = projectPath || process.env.KB_PROJECT_PATH || paths.project;
@@ -69,25 +107,27 @@ function loadKnowledgeBaseFromDisk({ projectPath, generalPath, rootDir = path.re
     resolvedProjectPath,
     createSampleProjectKnowledgeBase,
     "проектная база знаний"
-  );
+  ).map((item) => ({ ...item, source: "project" }));
 
   const generalKnowledgeBase = loadKnowledgeBaseFile(
     resolvedGeneralPath,
     createSampleGeneralKnowledgeBase,
     "общая база знаний"
-  );
+  ).map((item) => ({ ...item, source: "general" }));
 
   const russianDataset = loadRussianDataset({
     rootDir,
     datasetPath: russianDatasetPath,
     limit: Number(process.env.KB_RUSSIAN_LIMIT || 750),
-  });
+  }).map((item) => ({ ...item, source: "russian" }));
 
   const knowledgeBase = validateAndEnrichKnowledgeBase([
     ...projectKnowledgeBase,
     ...generalKnowledgeBase,
     ...russianDataset,
   ]);
+
+  await saveKnowledgeBaseEntries(knowledgeBase);
 
   return {
     knowledgeBase,
@@ -162,6 +202,7 @@ function validateAndEnrichKnowledgeBase(kb) {
       contentLength: (item.content || "").length,
       aliasCount: Array.isArray(item.aliases) ? item.aliases.length : 0,
       tagCount: Array.isArray(item.tags) ? item.tags.length : 0,
+      source: item.source || "unknown",
     };
   });
 }
