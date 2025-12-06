@@ -52,7 +52,7 @@ class ResponseGenerator {
 
     generateResponse(queryAnalysis, searchResults, context = {}) {
         const startTime = Date.now();
-        
+
         const response = {
             answer: "",
             sources: [],
@@ -69,52 +69,61 @@ class ResponseGenerator {
                 return this.generateClarificationResponse(queryAnalysis.ambiguity, context);
             }
 
-            // 2. Определяем тип ответа
-            response.responseType = this.determineResponseType(queryAnalysis, searchResults, context);
+            // 2. Деликатное ранжирование результатов с опорой на рассуждения
+            const curatedResults = this.rankResultsWithDeliberation(
+                searchResults,
+                queryAnalysis,
+                context.reasoningResult
+            );
 
-            // 3. Генерируем основной ответ
+            const resultsForAnswering = curatedResults.length > 0 ? curatedResults : searchResults;
+
+            // 3. Определяем тип ответа
+            response.responseType = this.determineResponseType(queryAnalysis, resultsForAnswering, context);
+
+            // 4. Генерируем основной ответ
             switch (response.responseType) {
                 case 'no_results':
                     response.answer = this.generateNoResultsResponse(queryAnalysis, context);
                     break;
 
                 case 'single_entity':
-                    response.answer = this.generateSingleEntityResponse(searchResults[0], queryAnalysis, context);
-                    response.sources = [this.createSourceInfo(searchResults[0])];
+                    response.answer = this.generateSingleEntityResponse(resultsForAnswering[0], queryAnalysis, context);
+                    response.sources = [this.createSourceInfo(resultsForAnswering[0])];
                     break;
 
                 case 'comparison':
-                    response.answer = this.generateComparisonResponse(searchResults, queryAnalysis, context);
-                    response.sources = searchResults.slice(0, 3).map(r => this.createSourceInfo(r));
+                    response.answer = this.generateComparisonResponse(resultsForAnswering, queryAnalysis, context);
+                    response.sources = resultsForAnswering.slice(0, 3).map(r => this.createSourceInfo(r));
                     break;
 
                 case 'complex_multi_part':
-                    response.answer = this.generateComplexResponse(queryAnalysis, searchResults, context);
-                    response.sources = this.extractUniqueSources(searchResults);
+                    response.answer = this.generateComplexResponse(queryAnalysis, resultsForAnswering, context);
+                    response.sources = this.extractUniqueSources(resultsForAnswering);
                     break;
 
                 case 'process_explanation':
-                    response.answer = this.generateProcessResponse(searchResults, queryAnalysis, context);
-                    response.sources = searchResults.slice(0, 2).map(r => this.createSourceInfo(r));
+                    response.answer = this.generateProcessResponse(resultsForAnswering, queryAnalysis, context);
+                    response.sources = resultsForAnswering.slice(0, 2).map(r => this.createSourceInfo(r));
                     break;
 
                 case 'definition_focused':
-                    response.answer = this.generateDefinitionResponse(searchResults, queryAnalysis, context);
-                    response.sources = searchResults.slice(0, 2).map(r => this.createSourceInfo(r));
+                    response.answer = this.generateDefinitionResponse(resultsForAnswering, queryAnalysis, context);
+                    response.sources = resultsForAnswering.slice(0, 2).map(r => this.createSourceInfo(r));
                     break;
 
                 case 'list_enumeration':
-                    response.answer = this.generateListResponse(searchResults, queryAnalysis, context);
-                    response.sources = this.extractUniqueSources(searchResults);
+                    response.answer = this.generateListResponse(resultsForAnswering, queryAnalysis, context);
+                    response.sources = this.extractUniqueSources(resultsForAnswering);
                     break;
 
                 default:
-                    response.answer = this.generateDefaultResponse(searchResults, queryAnalysis, context);
-                    response.sources = searchResults.slice(0, 3).map(r => this.createSourceInfo(r));
+                    response.answer = this.generateDefaultResponse(resultsForAnswering, queryAnalysis, context);
+                    response.sources = resultsForAnswering.slice(0, 3).map(r => this.createSourceInfo(r));
             }
 
             // 4. Сводим информацию из нескольких источников и добавляем рассуждения
-            const crossSourceInsight = this.synthesizeCrossSourceSummary(searchResults);
+            const crossSourceInsight = this.synthesizeCrossSourceSummary(resultsForAnswering);
             if (crossSourceInsight) {
                 response.answer = `${response.answer}\n\n${crossSourceInsight}`;
             }
@@ -201,6 +210,72 @@ class ResponseGenerator {
         }
 
         return 'default';
+    }
+
+    rankResultsWithDeliberation(searchResults, queryAnalysis, reasoningResult) {
+        if (!Array.isArray(searchResults) || searchResults.length === 0) {
+            return [];
+        }
+
+        const normalizedTopics = (queryAnalysis.topics || []).map(t => t.toLowerCase());
+        const entities = (queryAnalysis.entities || []).map(e => e.name?.toLowerCase?.() || "");
+
+        const scored = searchResults.map((result, index) => {
+            const content = `${result.document.title} ${result.document.content}`.toLowerCase();
+
+            const topicScore = normalizedTopics.reduce((acc, topic) => {
+                return acc + (content.includes(topic) ? 0.2 : 0);
+            }, 0);
+
+            const entityScore = entities.reduce((acc, entity) => {
+                if (!entity) return acc;
+                return acc + (content.includes(entity) ? 0.15 : 0);
+            }, 0);
+
+            const reasoningScore = reasoningResult?.conclusion
+                ? (content.includes(reasoningResult.conclusion.toLowerCase()) ? 0.25 : 0)
+                : 0;
+
+            const intentWeight = queryAnalysis.intent?.intent === 'process' ? 0.05 : 0.1;
+            const intentScore = queryAnalysis.intent?.intent &&
+                (result.document.tags || []).some(tag =>
+                    tag.toLowerCase().includes(queryAnalysis.intent.intent)
+                )
+                ? intentWeight
+                : 0;
+
+            const structuralBoost = (queryAnalysis.subqueries?.length || 0) > 1
+                ? Math.min(result.score * 0.1, 0.1)
+                : 0;
+
+            const confidence = (result.searchMetadata?.confidence || 0) * 0.1;
+
+            const finalScore = (result.score || 0) * 0.6 +
+                topicScore +
+                entityScore +
+                reasoningScore +
+                intentScore +
+                structuralBoost +
+                confidence;
+
+            return {
+                ...result,
+                deliberateScore: finalScore,
+                rankingIndex: index,
+                rationale: {
+                    topicScore,
+                    entityScore,
+                    reasoningScore,
+                    intentScore,
+                    structuralBoost,
+                    confidence
+                }
+            };
+        });
+
+        return scored
+            .filter(result => result.deliberateScore > 0.05)
+            .sort((a, b) => b.deliberateScore - a.deliberateScore);
     }
 
     generateClarificationResponse(ambiguity, context) {
