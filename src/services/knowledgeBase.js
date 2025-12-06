@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { loadRussianDataset } = require("./russianDatasetLoader");
 
 function resolveKnowledgePaths(rootDir) {
   const knowledgeDir = path.join(rootDir, "data", "knowledge");
@@ -15,6 +16,7 @@ function loadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__
 
   const resolvedProjectPath = projectPath || process.env.KB_PROJECT_PATH || paths.project;
   const resolvedGeneralPath = generalPath || process.env.KB_GENERAL_PATH || paths.general;
+  const russianDatasetPath = process.env.KB_RUSSIAN_PATH;
 
   const projectKnowledgeBase = loadKnowledgeBaseFile(
     resolvedProjectPath,
@@ -28,15 +30,23 @@ function loadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__
     "общая база знаний"
   );
 
+  const russianDataset = loadRussianDataset({
+    rootDir,
+    datasetPath: russianDatasetPath,
+    limit: Number(process.env.KB_RUSSIAN_LIMIT || 750),
+  });
+
   const knowledgeBase = validateAndEnrichKnowledgeBase([
     ...projectKnowledgeBase,
     ...generalKnowledgeBase,
+    ...russianDataset,
   ]);
 
   return {
     knowledgeBase,
     projectKnowledgeBase,
     generalKnowledgeBase,
+    russianDataset,
   };
 }
 
