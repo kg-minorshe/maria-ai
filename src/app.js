@@ -42,6 +42,13 @@ const { normalizeText } = require("./utils/text");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ROOT_DIR = path.resolve(__dirname, "..");
+const isDevelopment = process.env.NODE_ENV === "development";
+
+const devLog = (...args) => {
+  if (isDevelopment) {
+    console.log("[DEV]", ...args);
+  }
+};
 
 // Глобальные переменные
 let knowledgeBase = [];
@@ -165,6 +172,7 @@ app.post("/api/chat/query", async (req, res) => {
   const processingStart = Date.now();
   try {
     const { message } = req.body;
+    devLog("Запрос получен", { message });
 
     systemStats.totalQueries++;
 
@@ -189,22 +197,30 @@ app.post("/api/chat/query", async (req, res) => {
       });
     }
 
+    devLog("Валидация пройдена", { length: message.length });
+
     // Получаем или создаем сессию
     const sessionId =
       req.session.id ||
       `session_${Date.now()}_${Math.random().toString(36).substr(2, 12)}`;
     req.session.id = sessionId;
+    devLog("Сессия активна", { sessionId });
 
     // Получаем историю сообщений для анализа эмоционального состояния
     const dialogContext = contextManager.getRelevantContext(sessionId, message);
     const messageHistory =
       dialogContext.recentMessages?.map((m) => m.content) || [];
+    devLog("Контекст получен", {
+      recentMessages: messageHistory.length,
+      currentTopic: dialogContext.currentTopic,
+    });
 
     // Анализируем эмоциональное состояние
     const emotionalAnalysis = EnhancedEscalationService.analyzeEmotionalState(
       message,
       messageHistory
     );
+    devLog("Эмоциональный анализ выполнен", emotionalAnalysis);
 
     // Проверка на эскалацию
     if (
@@ -239,6 +255,11 @@ app.post("/api/chat/query", async (req, res) => {
         emotionalAnalysis: emotionalAnalysis,
       };
 
+      devLog("Эскалация выполнена", {
+        escalationId: escalationResult.escalationId,
+        reason: escalationReason,
+      });
+
       // Сохраняем в контекст
       contextManager.addUserMessage(sessionId, message);
       contextManager.addAssistantResponse(
@@ -271,6 +292,8 @@ app.post("/api/chat/query", async (req, res) => {
         emotionalAnalysis: emotionalAnalysis,
       };
 
+      devLog("Обнаружена фрустрация, предложена мягкая эскалация");
+
       contextManager.addUserMessage(sessionId, message);
       contextManager.addAssistantResponse(
         sessionId,
@@ -302,6 +325,9 @@ app.post("/api/chat/query", async (req, res) => {
       console.error("❌ Ошибка построения когнитивной модели:", error);
       userProfile = cognitiveModeling.buildUserModel(sessionId, []);
     }
+    devLog("Когнитивная модель пользователя сформирована", {
+      cognitiveLoad: userProfile?.cognitiveLoad,
+    });
 
     // 3. Анализируем эмоциональное состояние с защитой от ошибок
     let emotionalState;
@@ -320,6 +346,10 @@ app.post("/api/chat/query", async (req, res) => {
         triggers: [],
       };
     }
+    devLog("Эмоциональное состояние определено", {
+      primaryEmotion: emotionalState.primaryEmotion?.type,
+      intensity: emotionalState.intensity,
+    });
 
     // 4. Предсказываем следующие вопросы с защитой от ошибок
     let predictedQuestions = [];
@@ -332,12 +362,14 @@ app.post("/api/chat/query", async (req, res) => {
       console.error("❌ Ошибка предсказания вопросов:", error);
       predictedQuestions = [];
     }
+    devLog("Предсказанные вопросы", predictedQuestions);
 
     // 5. Разрешаем ссылки
     const resolvedMessage = contextManager.resolveReferences(
       sessionId,
       message
     );
+    devLog("Разрешенные ссылки в сообщении", { resolvedMessage });
 
     // 6. Анализ запроса с защитой от ошибок
     let queryAnalysis;
@@ -357,6 +389,7 @@ app.post("/api/chat/query", async (req, res) => {
         requiresReasoning: false,
       };
     }
+    devLog("Анализ запроса завершен", queryAnalysis);
 
     // 7. Применяем reasoning если нужно с защитой от ошибок
     const needsReasoning =
@@ -378,6 +411,10 @@ app.post("/api/chat/query", async (req, res) => {
       console.error("❌ Ошибка reasoning:", error);
       reasoningResult = null;
     }
+    devLog("Reasoning выполнен", {
+      needsReasoning,
+      reasoningType: reasoningResult?.reasoningType,
+    });
 
     // 8. Семантический поиск с защитой от ошибок
     let searchResults;
@@ -395,6 +432,10 @@ app.post("/api/chat/query", async (req, res) => {
         totalMatches: 0,
       };
     }
+    devLog("Семантический поиск завершен", {
+      totalMatches: searchResults.totalMatches,
+      confidence: searchResults.confidence,
+    });
 
     // 9. Генерация ответа с учётом когнитивной модели и защитой от ошибок
     let response;
@@ -426,6 +467,10 @@ app.post("/api/chat/query", async (req, res) => {
         responseType: "error",
       };
     }
+    devLog("Ответ сгенерирован", {
+      responseType: response.responseType,
+      confidence: response.confidence,
+    });
 
     // 10. Применяем эмоциональную адаптацию с защитой от ошибок
     let empathicResponse;
@@ -438,6 +483,7 @@ app.post("/api/chat/query", async (req, res) => {
       console.error("❌ Ошибка эмоциональной адаптации:", error);
       empathicResponse = response.answer;
     }
+    devLog("Эмоциональная адаптация применена", { preview: empathicResponse });
 
     // 11. Сохраняем в контекст с защитой от ошибок
     try {
@@ -460,6 +506,7 @@ app.post("/api/chat/query", async (req, res) => {
     } catch (error) {
       console.error("❌ Ошибка сохранения контекста:", error);
     }
+    devLog("Контекст обновлен", { sessionId });
 
     // 12. Формируем финальный ответ с безопасным доступом к свойствам
     const finalResponse = {
@@ -493,6 +540,11 @@ app.post("/api/chat/query", async (req, res) => {
       processingTime: Date.now() - processingStart,
       sessionId: sessionId,
     };
+
+    devLog("Финальный ответ готов", {
+      processingTime: finalResponse.processingTime,
+      confidence: finalResponse.confidence,
+    });
 
     res.json(finalResponse);
   } catch (error) {
