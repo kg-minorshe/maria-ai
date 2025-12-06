@@ -25,10 +25,23 @@ function parseArgs() {
 function loadSberQuAD(filePath) {
   const raw = fs.readFileSync(filePath, 'utf8');
   const parsed = JSON.parse(raw);
-  if (!Array.isArray(parsed.data)) {
-    throw new Error('Файл не похож на SberQuAD: нет массива data');
+  const candidates = [
+    parsed?.data,
+    parsed?.train,
+    parsed?.validation,
+    parsed?.dataset?.data,
+  ];
+
+  const dataArray = candidates.find(Array.isArray);
+
+  if (!dataArray) {
+    const keys = parsed && typeof parsed === 'object' ? Object.keys(parsed) : [];
+    throw new Error(
+      `Файл не похож на SberQuAD: не найден массив data/train/validation. Найдены ключи: ${keys.join(', ')}`,
+    );
   }
-  return parsed.data;
+
+  return dataArray;
 }
 
 function convertToKnowledgeBase(data, limit) {
