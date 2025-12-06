@@ -2,7 +2,7 @@
   "scripts": {
     "start": "node src/app.js",
     "dev": "node src/app.js",
-    "test": "node test.js",
+    "test": "python scripts/run_llm_eval.py --ci",
     "benchmark": "node scripts/run_benchmark.js"
   },
   "dependencies": {
