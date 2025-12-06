@@ -172,6 +172,9 @@ console.log("✅ Система прошла проверку готовност
 // Расширенная система эскалации с более гибким распознаванием
 app.post("/api/chat/query", async (req, res) => {
   const processingStart = Date.now();
+  const performanceTrace = [];
+  const trackStep = (name, duration) =>
+    performanceTrace.push({ name, duration });
   logStep("request:received", { path: req.path, method: req.method });
   try {
     const { message } = req.body;
@@ -224,6 +227,7 @@ app.post("/api/chat/query", async (req, res) => {
       recentMessages: messageHistory.length,
       currentTopic: dialogContext.currentTopic,
     });
+    trackStep("context:retrieved", Date.now() - contextStart);
 
     // Анализируем эмоциональное состояние
     const emotionalAnalysisStart = Date.now();
@@ -236,6 +240,7 @@ app.post("/api/chat/query", async (req, res) => {
       durationMs: Date.now() - emotionalAnalysisStart,
       dominant: emotionalAnalysis.primaryEmotion,
     });
+    trackStep("emotion:analyzed", Date.now() - emotionalAnalysisStart);
 
     // Проверка на эскалацию
     if (
@@ -341,6 +346,7 @@ app.post("/api/chat/query", async (req, res) => {
       durationMs: Date.now() - contextRetrievalStart,
       entities: context.recentEntities?.length,
     });
+    trackStep("context:re-resolved", Date.now() - contextRetrievalStart);
 
     // 2. Строим когнитивную модель пользователя с защитой от ошибок
     let userProfile;
@@ -357,6 +363,7 @@ app.post("/api/chat/query", async (req, res) => {
         },
       ]);
       logStep("cognitive:built", { durationMs: Date.now() - cognitiveStart });
+      trackStep("cognitive:built", Date.now() - cognitiveStart);
     } catch (error) {
       console.error("❌ Ошибка построения когнитивной модели:", error);
       userProfile = cognitiveModeling.buildUserModel(sessionId, []);
@@ -378,6 +385,7 @@ app.post("/api/chat/query", async (req, res) => {
         durationMs: Date.now() - emotionalStateStart,
         primary: emotionalState.primaryEmotion?.type,
       });
+      trackStep("emotion:state", Date.now() - emotionalStateStart);
     } catch (error) {
       console.error("❌ Ошибка анализа эмоционального состояния:", error);
       emotionalState = {
@@ -406,6 +414,7 @@ app.post("/api/chat/query", async (req, res) => {
         durationMs: Date.now() - predictionStart,
         questions: predictedQuestions.length,
       });
+      trackStep("cognitive:predicted", Date.now() - predictionStart);
     } catch (error) {
       console.error("❌ Ошибка предсказания вопросов:", error);
       predictedQuestions = [];
@@ -423,6 +432,7 @@ app.post("/api/chat/query", async (req, res) => {
       durationMs: Date.now() - referenceStart,
       changed: resolvedMessage !== message,
     });
+    trackStep("context:references", Date.now() - referenceStart);
     devLog("Разрешенные ссылки в сообщении", { resolvedMessage });
 
     // 6. Анализ запроса с защитой от ошибок
@@ -438,6 +448,7 @@ app.post("/api/chat/query", async (req, res) => {
         durationMs: Date.now() - analysisStart,
         intent: queryAnalysis.intent?.intent,
       });
+      trackStep("analysis:completed", Date.now() - analysisStart);
     } catch (error) {
       console.error("❌ Ошибка анализа запроса:", error);
       queryAnalysis = {
@@ -482,6 +493,7 @@ app.post("/api/chat/query", async (req, res) => {
         executed: shouldRunReasoning,
         type: reasoningResult?.reasoningType,
       });
+      trackStep("reasoning:completed", Date.now() - reasoningStart);
     } catch (error) {
       console.error("❌ Ошибка reasoning:", error);
       reasoningResult = null;
@@ -520,6 +532,7 @@ app.post("/api/chat/query", async (req, res) => {
         results: searchResults?.results?.length,
         skippedForSpeed: !shouldRunSemanticSearch,
       });
+      trackStep("search:completed", Date.now() - searchStart);
     } catch (error) {
       console.error("❌ Ошибка семантического поиска:", error);
       searchResults = {
@@ -560,6 +573,7 @@ app.post("/api/chat/query", async (req, res) => {
         durationMs: Date.now() - responseStart,
         responseType: response.responseType,
       });
+      trackStep("response:generated", Date.now() - responseStart);
     } catch (error) {
       console.error("❌ Ошибка генерации ответа:", error);
       response = {
@@ -609,6 +623,7 @@ app.post("/api/chat/query", async (req, res) => {
         }
       );
       logStep("context:updated", { durationMs: Date.now() - contextSaveStart });
+      trackStep("context:updated", Date.now() - contextSaveStart);
     } catch (error) {
       console.error("❌ Ошибка сохранения контекста:", error);
       logError("context", "Не удалось сохранить контекст", error);
@@ -668,6 +683,14 @@ app.post("/api/chat/query", async (req, res) => {
       (systemStats.averageResponseTime * (systemStats.totalQueries - 1) +
         (Date.now() - processingStart)) /
       systemStats.totalQueries;
+    logStep("request:profiling", {
+      totalMs: Date.now() - processingStart,
+      slowest:
+        performanceTrace
+          .slice()
+          .sort((a, b) => b.duration - a.duration)
+          .slice(0, 5) || [],
+    });
     logStep("request:completed", {
       type: "success",
       processingTime: Date.now() - processingStart,
