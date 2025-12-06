@@ -1,6 +1,11 @@
 const fs = require("fs");
 const path = require("path");
 const { loadRussianDataset } = require("./russianDatasetLoader");
+const {
+  saveKnowledgeBaseEntries,
+  loadKnowledgeBaseFromDb,
+  countKnowledgeBaseEntries,
+} = require("./knowledgeBaseStorage");
 
 let cachedKnowledgeBase = null;
 let cachedSources = {
@@ -104,6 +109,8 @@ async function loadKnowledgeBaseFromStorage({ projectPath, generalPath, rootDir 
     ],
     { withProgress: true }
   );
+
+  await saveKnowledgeBaseEntries(knowledgeBase);
 
   return {
     knowledgeBase,
