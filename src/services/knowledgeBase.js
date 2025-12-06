@@ -2,6 +2,14 @@ const fs = require("fs");
 const path = require("path");
 const { loadRussianDataset } = require("./russianDatasetLoader");
 
+let cachedKnowledgeBase = null;
+let cachedSources = {
+  projectKnowledgeBase: [],
+  generalKnowledgeBase: [],
+  russianDataset: [],
+};
+let knowledgeBaseStatus = "idle";
+
 function resolveKnowledgePaths(rootDir) {
   const knowledgeDir = path.join(rootDir, "data", "knowledge");
 
@@ -12,6 +20,45 @@ function resolveKnowledgePaths(rootDir) {
 }
 
 function loadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
+  if (cachedKnowledgeBase) {
+    console.log(
+      `ℹ️  Используется предзагруженная база знаний в памяти (${cachedKnowledgeBase.length} статей)`
+    );
+
+    return {
+      knowledgeBase: cachedKnowledgeBase,
+      ...cachedSources,
+    };
+  }
+
+  return reloadKnowledgeBase({ projectPath, generalPath, rootDir });
+}
+
+function reloadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
+  console.log("⏳ Предзагрузка базы знаний в оперативную память...");
+  knowledgeBaseStatus = "loading";
+
+  const loaded = loadKnowledgeBaseFromDisk({ projectPath, generalPath, rootDir });
+
+  cachedKnowledgeBase = loaded.knowledgeBase;
+  cachedSources = {
+    projectKnowledgeBase: loaded.projectKnowledgeBase,
+    generalKnowledgeBase: loaded.generalKnowledgeBase,
+    russianDataset: loaded.russianDataset,
+  };
+  knowledgeBaseStatus = "ready";
+
+  console.log(
+    `✅ База знаний загружена в память (${cachedKnowledgeBase.length} статей, статус: ${knowledgeBaseStatus})`
+  );
+
+  return {
+    knowledgeBase: cachedKnowledgeBase,
+    ...cachedSources,
+  };
+}
+
+function loadKnowledgeBaseFromDisk({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
   const paths = resolveKnowledgePaths(rootDir);
 
   const resolvedProjectPath = projectPath || process.env.KB_PROJECT_PATH || paths.project;
@@ -133,8 +180,30 @@ function createEmptyKnowledgeBase() {
   ];
 }
 
+function getKnowledgeBaseCache() {
+  return cachedKnowledgeBase || [];
+}
+
+function getKnowledgeBaseStatus() {
+  return knowledgeBaseStatus;
+}
+
+function resetKnowledgeBaseCache() {
+  cachedKnowledgeBase = null;
+  cachedSources = {
+    projectKnowledgeBase: [],
+    generalKnowledgeBase: [],
+    russianDataset: [],
+  };
+  knowledgeBaseStatus = "idle";
+}
+
 module.exports = {
   loadKnowledgeBase,
+  reloadKnowledgeBase,
+  getKnowledgeBaseCache,
+  getKnowledgeBaseStatus,
+  resetKnowledgeBaseCache,
   validateAndEnrichKnowledgeBase,
   createSampleProjectKnowledgeBase,
   createSampleGeneralKnowledgeBase,
