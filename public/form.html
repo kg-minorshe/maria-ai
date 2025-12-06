@@ -794,6 +794,10 @@
         isProcessing = true;
         sendButton.disabled = true;
 
+        // Добавляем таймаут, чтобы индикатор «Мария думает» не зависал бесконечно
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000);
+
         try {
           // Отправляем запрос на сервер
           const response = await fetch("/api/chat/query", {
@@ -802,6 +806,7 @@
               "Content-Type": "application/json",
             },
             body: JSON.stringify({ message }),
+            signal: controller.signal,
           });
 
           const data = await response.json();
@@ -816,12 +821,20 @@
           processAIResponse(data);
         } catch (error) {
           console.error("Ошибка отправки сообщения:", error);
-          addMessageToChat(
-            "bot",
-            "Извините, произошла ошибка при обработке вашего запроса. " +
-              "Пожалуйста, попробуйте еще раз или обратитесь к системному администратору."
-          );
+          if (error.name === "AbortError") {
+            addMessageToChat(
+              "bot",
+              "Похоже, ответ занял слишком много времени. Попробуйте ещё раз или сформулируйте вопрос проще."
+            );
+          } else {
+            addMessageToChat(
+              "bot",
+              "Извините, произошла ошибка при обработке вашего запроса. " +
+                "Пожалуйста, попробуйте еще раз или обратитесь к системному администратору."
+            );
+          }
         } finally {
+          clearTimeout(timeoutId);
           // Скрываем индикатор набора и включаем кнопку
           hideTypingIndicator();
           isProcessing = false;
