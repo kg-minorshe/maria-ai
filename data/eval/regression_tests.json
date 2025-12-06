@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "description": "Regression gold answers for previously failing user queries.",
+  "cases": [
+    {
+      "id": "reg_subscription_price",
+      "query": "сколько стоит подписка",
+      "expected_output": "Стоимость зависит от выбранного тарифа. Уточните план в профиле или напишите в поддержку, чтобы прислать актуальный прайс.",
+      "keywords": ["стоимость", "тариф", "поддерж"],
+      "type": "adversarial"
+    },
+    {
+      "id": "reg_cancel_payment",
+      "query": "как отменить оплату",
+      "expected_output": "Оплата отменяется через профиль: откройте платежи, выберите последний чек и запросите возврат либо напишите оператору.",
+      "keywords": ["отмен", "платеж", "оператор"],
+      "type": "adversarial"
+    },
+    {
+      "id": "reg_operator_handoff",
+      "query": "свяжите меня с оператором",
+      "expected_output": "Подключаю оператора и передаю историю сообщений. Ответим в течение нескольких минут.",
+      "keywords": ["оператор", "передаю", "минут"],
+      "type": "adversarial"
+    },
+    {
+      "id": "reg_mobile_app",
+      "query": "мобильное приложение вайлт",
+      "expected_output": "Мобильное приложение пока в закрытом тесте. Актуальные функции доступны в веб-версии и через WHILET ID.",
+      "keywords": ["мобиль", "веб", "WHILET"],
+      "type": "adversarial"
+    },
+    {
+      "id": "reg_support_phone",
+      "query": "официальный телефон поддержки",
+      "expected_output": "Телефона поддержки нет, пишите через чат или на support@whilet.net, чтобы не попасть на мошенников.",
+      "keywords": ["поддерж", "чат", "whilet.net"],
+      "type": "adversarial"
+    },
+    {
+      "id": "reg_download_client",
+      "query": "скачать клиент whilet",
+      "expected_output": "Клиент доступен после входа через WHILET ID на whilet.net. Скачивание с других сайтов небезопасно.",
+      "keywords": ["WHILET", "whilet.net", "безопас"],
+      "type": "adversarial"
+    },
+    {
+      "id": "reg_payment_500",
+      "query": "ошибка 500 при оплате",
+      "expected_output": "Это технический сбой. Проверьте статус оплаты позже, не повторяйте платеж, и отправьте номер заказа в поддержку.",
+      "keywords": ["сбой", "оплат", "поддерж"],
+      "type": "adversarial"
+    },
+    {
+      "id": "reg_delete_account",
+      "query": "хочу удалить аккаунт",
+      "expected_output": "Удаление аккаунта делается по запросу: подтвердите почту и мы удалим данные в течение 30 дней.",
+      "keywords": ["удален", "почт", "30"],
+      "type": "adversarial"
+    },
+    {
+      "id": "reg_change_language",
+      "query": "где сменить язык интерфейса",
+      "expected_output": "Язык меняется в профиле: раздел Настройки → Язык интерфейса. Сохраните, чтобы обновить меню.",
+      "keywords": ["язык", "Настройки", "профил"],
+      "type": "adversarial"
+    },
+    {
+      "id": "reg_reset_password",
+      "query": "как восстановить пароль",
+      "expected_output": "Используйте форму восстановления: укажите почту, подтвердите код и задайте новый пароль.",
+      "keywords": ["восстанов", "код", "парол"],
+      "type": "adversarial"
+    },
+    {
+      "id": "reg_integration_down",
+      "query": "не работает интеграция",
+      "expected_output": "Проверьте токен и доступы, обновите webhook и свяжитесь с нами с логами запросов, если ошибка сохраняется.",
+      "keywords": ["токен", "webhook", "лог"],
+      "type": "adversarial"
+    },
+    {
+      "id": "reg_show_code",
+      "query": "покажи код примера",
+      "expected_output": "Ниже пример из официальной документации. Если нужен другой язык, напишите детали.",
+      "keywords": ["пример", "документац", "язык"],
+      "type": "adversarial"
+    }
+  ]
+}
