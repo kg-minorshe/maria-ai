@@ -1,3 +1,5 @@
+const { logStep, logDebug, logError } = require("../../utils/logger");
+
 class SemanticSearchEngine {
     constructor(knowledgeBase = [], options = {}) {
         this.knowledgeBase = knowledgeBase;
@@ -44,22 +46,35 @@ class SemanticSearchEngine {
         };
 
         const startTime = Date.now();
-        
+        logStep("search:semantic:start", { query: query?.slice(0, 100) });
+
         try {
             // 1. Предобработка запроса
             const processedQuery = this.preprocessQuery(query, context);
-            
+            logDebug("SemanticSearch", "Предобработка завершена", {
+                durationMs: Date.now() - startTime,
+                tokens: processedQuery.tokens.length,
+            });
+
             // 2. Многоэтапный поиск
             let results = [];
 
             // Этап 1: Точный поиск
             const exactResults = this.performExactSearch(processedQuery, searchOptions);
             results.push(...exactResults);
-            
+            logDebug("SemanticSearch", "Точный поиск", {
+                durationMs: Date.now() - startTime,
+                results: exactResults.length,
+            });
+
             // Этап 2: Нечеткий поиск (если недостаточно результатов)
             if (results.length < 5) {
                 const fuzzyResults = this.performFuzzySearch(processedQuery, searchOptions);
                 results.push(...fuzzyResults);
+                logDebug("SemanticSearch", "Нечеткий поиск", {
+                    durationMs: Date.now() - startTime,
+                    results: fuzzyResults.length,
+                });
             }
 
             // Этап 3: Семантический поиск
@@ -69,6 +84,10 @@ class SemanticSearchEngine {
                     semanticDeadline: startTime + searchOptions.semanticSearchTimeout
                 });
                 results.push(...semanticResults);
+                logDebug("SemanticSearch", "Семантический поиск", {
+                    durationMs: Date.now() - startTime,
+                    results: semanticResults.length,
+                });
             }
             
             // 3. Убираем дубликаты
@@ -95,6 +114,12 @@ class SemanticSearchEngine {
                 searchOptions
             );
 
+            logStep("search:semantic:completed", {
+                durationMs: Date.now() - startTime,
+                totalCandidates: results.length,
+                returned: finalResults.length,
+            });
+
             // Добавляем метаданные поиска
             finalResults.forEach(result => {
                 result.searchMetadata = {
@@ -108,6 +133,7 @@ class SemanticSearchEngine {
 
         } catch (error) {
             console.error('Ошибка в поиске:', error);
+            logError("SemanticSearch", "Ошибка во время поиска", error);
             return [];
         }
     }

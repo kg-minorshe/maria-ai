@@ -1,3 +1,5 @@
+const { logStep, logDebug, logError } = require("../../utils/logger");
+
 class ResponseGenerator {
     constructor() {
         this.templates = this.loadResponseTemplates();
@@ -52,6 +54,10 @@ class ResponseGenerator {
 
     generateResponse(queryAnalysis, searchResults, context = {}) {
         const startTime = Date.now();
+        logStep("response:generator:start", {
+            intent: queryAnalysis.intent?.intent,
+            searchResults: searchResults?.length,
+        });
 
         const response = {
             answer: "",
@@ -75,6 +81,10 @@ class ResponseGenerator {
                 queryAnalysis,
                 context.reasoningResult
             );
+            logDebug("ResponseGenerator", "Результаты ранжированы", {
+                curated: curatedResults.length,
+                original: searchResults?.length,
+            });
 
             const resultsForAnswering = curatedResults.length > 0 ? curatedResults : searchResults;
 
@@ -155,11 +165,17 @@ class ResponseGenerator {
                 responseComplexity: this.assessResponseComplexity(response.answer),
                 reasoningUsed: Boolean(context.reasoningResult)
             };
+            logStep("response:generator:completed", {
+                durationMs: Date.now() - startTime,
+                responseType: response.responseType,
+                confidence: response.confidence,
+            });
 
         } catch (error) {
             console.error('Ошибка генерации ответа:', error);
             response.answer = "Извините, произошла ошибка при формировании ответа. Попробуйте переформулировать вопрос.";
             response.confidence = 0.1;
+            logError("ResponseGenerator", "Ошибка генерации ответа", error);
         }
 
         return response;
