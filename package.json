@@ -6,7 +6,7 @@
     "benchmark": "node scripts/run_benchmark.js"
   },
   "dependencies": {
-    "@tensorflow/tfjs-node": "^4.22.0",
+    "@tensorflow/tfjs": "^4.22.0",
     "@appigram/yookassa-node": "^1.1.11",
     "@fingerprintjs/fingerprintjs-pro-server-api": "^6.10.0",
     "abbrev": "^3.0.1",

@@ -1,10 +1,8 @@
-const ort = require("onnxruntime-node");
-const tf = require("@tensorflow/tfjs-node");
+const tf = require("@tensorflow/tfjs");
 
 class LocalEmbeddingRuntime {
   constructor({ knowledgeBase = [], embeddingSize = 256 } = {}) {
     this.embeddingSize = embeddingSize;
-    this.ortAvailable = Boolean(ort);
     this.tfAvailable = Boolean(tf);
     this.indexKnowledgeBase(knowledgeBase);
   }
