@@ -1,21 +1,28 @@
 require("dotenv").config();
 const express = require("express");
 const session = require("express-session");
-const fs = require("fs");
 const path = require("path");
 
 // Импорт всех модулей
-const { DialogContextManager } = require("./DialogContextManager");
-const { AdvancedQueryAnalyzer } = require("./AdvancedQueryAnalyzer");
-const { SemanticSearchEngine } = require("./SemanticSearchEngine");
-const { ResponseGenerator } = require("./ResponseGenerator");
-const { AmbiguityResolver } = require("./AmbiguityResolver");
-const { CognitiveUserModeling } = require("./CognitiveUserModeling");
-const { EmotionalIntelligence } = require("./EmotionalIntelligence");
-const { ReasoningEngine } = require("./ReasoningEngine");
+const { DialogContextManager } = require("./modules/dialog/DialogContextManager");
+const { AdvancedQueryAnalyzer } = require("./modules/analysis/AdvancedQueryAnalyzer");
+const { SemanticSearchEngine } = require("./modules/search/SemanticSearchEngine");
+const { ResponseGenerator } = require("./modules/response/ResponseGenerator");
+const { AmbiguityResolver } = require("./modules/clarification/AmbiguityResolver");
+const { CognitiveUserModeling } = require("./modules/user/CognitiveUserModeling");
+const { EmotionalIntelligence } = require("./modules/emotion/EmotionalIntelligence");
+const { ReasoningEngine } = require("./modules/reasoning/ReasoningEngine");
+const {
+  loadKnowledgeBase: loadKnowledgeBaseService,
+  createEmptyKnowledgeBase,
+} = require("./services/knowledgeBase");
+const { EnhancedEscalationService } = require("./services/enhancedEscalationService");
+const { performSystemHealthCheck } = require("./services/systemHealth");
+const { normalizeText } = require("./utils/text");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const ROOT_DIR = path.resolve(__dirname, "..");
 
 // Глобальные переменные
 let knowledgeBase = [];
@@ -41,7 +48,7 @@ let systemStats = {
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(ROOT_DIR, "public")));
 
 app.use(
   session({
@@ -69,7 +76,7 @@ app.use((req, res, next) => {
 });
 
 app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public/form.html"));
+  res.sendFile(path.join(ROOT_DIR, "public/form.html"));
 });
 // Инициализация системы
 function initializeSystem() {
@@ -92,7 +99,14 @@ function initializeSystem() {
     console.log("✅ Все компоненты системы инициализированы успешно");
 
     // Проверяем готовность системы
-    performSystemHealthCheck();
+    performSystemHealthCheck({
+      knowledgeBase,
+      contextManager,
+      queryAnalyzer,
+      searchEngine,
+      responseGenerator,
+      ambiguityResolver,
+    });
   } catch (error) {
     console.error("❌ Критическая ошибка инициализации:", error);
     process.exit(1);
@@ -101,31 +115,12 @@ function initializeSystem() {
 
 function loadKnowledgeBase() {
   try {
-    const projectKbPath =
-      process.env.KB_PROJECT_PATH ||
-      path.join(__dirname, "knowledge-base-project.json");
-    const generalKbPath =
-      process.env.KB_GENERAL_PATH ||
-      path.join(__dirname, "knowledge-base-general.json");
+    const { knowledgeBase: combinedKnowledgeBase, projectKnowledgeBase, generalKnowledgeBase } =
+      loadKnowledgeBaseService({ rootDir: ROOT_DIR });
 
-    const projectKnowledgeBase = loadKnowledgeBaseFile(
-      projectKbPath,
-      createSampleProjectKnowledgeBase,
-      "проектная база знаний"
-    );
-    const generalKnowledgeBase = loadKnowledgeBaseFile(
-      generalKbPath,
-      createSampleGeneralKnowledgeBase,
-      "общая база знаний"
-    );
-
-    // Валидация и обогащение данных
-    knowledgeBase = validateAndEnrichKnowledgeBase([
-      ...projectKnowledgeBase,
-      ...generalKnowledgeBase,
-    ]);
-
+    knowledgeBase = combinedKnowledgeBase;
     global.knowledgeBase = knowledgeBase;
+
     console.log(
       `📚 База знаний загружена: ${knowledgeBase.length} статей (проект: ${projectKnowledgeBase.length}, общие темы: ${generalKnowledgeBase.length})`
     );
@@ -135,430 +130,11 @@ function loadKnowledgeBase() {
   }
 }
 
-function loadKnowledgeBaseFile(filePath, sampleCreator, label) {
-  if (!fs.existsSync(filePath)) {
-    console.warn(`⚠️  ${label} не найдена. Создаю пример...`);
-    sampleCreator(filePath);
-  }
-
-  const data = fs.readFileSync(filePath, "utf8");
-  const parsed = JSON.parse(data);
-
-  if (!Array.isArray(parsed)) {
-    throw new Error(`${label} должна быть массивом статей`);
-  }
-
-  return parsed;
-}
-
-function createSampleProjectKnowledgeBase(kbPath) {
-  const sampleKB = [
-    {
-      id: "proj_001",
-      title: "Общая информация о проекте",
-      aliases: ["мой проект", "основы проекта"],
-      content:
-        "Эта база знаний хранит сведения, относящиеся к вашему проекту. Добавляйте сюда все материалы, которые должны использоваться ассистентом при ответах о продукте, команде и технологиях.",
-      tags: ["проект", "основы", "структура"],
-      category: "Проект",
-      lastUpdated: new Date().toISOString().split("T")[0],
-    },
-  ];
-
-  fs.writeFileSync(kbPath, JSON.stringify(sampleKB, null, 2));
-  console.log(`📝 Создан пример проектной базы знаний: ${kbPath}`);
-}
-
-function createSampleGeneralKnowledgeBase(kbPath) {
-  const sampleKB = [
-    {
-      id: "gen_001",
-      title: "Общие сведения об искусственном интеллекте",
-      aliases: ["что такое ИИ", "определение искусственного интеллекта", "AI"],
-      content:
-        "Искусственный интеллект (ИИ) — область информатики, посвящённая созданию систем, способных выполнять задачи, требующие человеческого интеллекта. Ключевые направления включают машинное обучение, обработку естественного языка, компьютерное зрение и экспертные системы.",
-      tags: ["ИИ", "искусственный интеллект", "машинное обучение", "основы"],
-      category: "Общие темы",
-      lastUpdated: new Date().toISOString().split("T")[0],
-    },
-  ];
-
-  fs.writeFileSync(kbPath, JSON.stringify(sampleKB, null, 2));
-  console.log(`📝 Создан пример общей базы знаний: ${kbPath}`);
-}
-
-function validateAndEnrichKnowledgeBase(kb) {
-  return kb.map((item, index) => {
-    // Обеспечиваем наличие всех необходимых полей
-    return {
-      id: item.id || `auto_${index}`,
-      title: item.title || "Без названия",
-      aliases: Array.isArray(item.aliases) ? item.aliases : [],
-      content: item.content || "",
-      tags: Array.isArray(item.tags) ? item.tags : [],
-      category: item.category || "общее",
-      lastUpdated: item.lastUpdated || new Date().toISOString().split("T")[0],
-      // Дополнительные метаданные
-      contentLength: (item.content || "").length,
-      aliasCount: Array.isArray(item.aliases) ? item.aliases.length : 0,
-      tagCount: Array.isArray(item.tags) ? item.tags.length : 0,
-    };
-  });
-}
-
-function createEmptyKnowledgeBase() {
-  return [
-    {
-      id: "1",
-      title: "Добро пожаловать",
-      aliases: ["приветствие"],
-      content:
-        "Добро пожаловать в систему Марии! База знаний пока пуста, но я готова к работе.",
-      tags: ["система"],
-      category: "общее",
-    },
-  ];
-}
-
-function performSystemHealthCheck() {
-  const checks = {
-    knowledgeBase: knowledgeBase.length > 0,
-    contextManager: contextManager !== null,
-    queryAnalyzer: queryAnalyzer !== null,
-    searchEngine: searchEngine !== null,
-    responseGenerator: responseGenerator !== null,
-    ambiguityResolver: ambiguityResolver !== null,
-  };
-
-  const failedChecks = Object.entries(checks).filter(
-    ([key, passed]) => !passed
-  );
-
-  if (failedChecks.length > 0) {
-    console.error(
-      "❌ Проверка системы не пройдена:",
-      failedChecks.map(([key]) => key)
-    );
-    throw new Error("Система не готова к работе");
-  }
-
   console.log("✅ Система прошла проверку готовности");
 }
 
-// Функция для нормализации текста (убирает различия в написании)
-function normalizeText(text) {
-  return text
-    .toLowerCase()
-    .replace(/ё/g, "е")
-    .replace(/[^\w\s]/g, " ") // убираем пунктуацию
-    .replace(/\s+/g, " ") // убираем лишние пробелы
-    .trim();
-}
 
 // Расширенная система эскалации с более гибким распознаванием
-class EnhancedEscalationService {
-  static escalationPatterns = [
-    // Прямые запросы оператора
-    {
-      patterns: [
-        /(?:позов|вызов|нужен|хочу|требую|попроси|дай|покажи).*(?:человек|оператор|менедже?р|специалист|сотрудник|администратор)/,
-        /(?:связать|соединить|перевести|переключить|переключи).*(?:человек|оператор|менедже?р|специалист|сотрудник)/,
-        /(?:живой|настоящий|реальный|человечески|человечный).*(?:человек|оператор|менедже?р|специалист|сотрудник)/,
-        /(?:поддержка|помощь|служба|сервис|техпод|техподдержка).*(?:человек|живой|реальный|настоящий)/,
-        /(?:оператор|человек|менедже?р|специалист|админ|модератор|сотрудник).*(?:пожалуйста|плз|срочно|нужно|нужен|требуется)/,
-      ],
-      confidence: 0.95,
-      reason: "direct_human_request",
-    },
-
-    // Жалобы на бота
-    {
-      patterns: [
-        /не.*(?:понимаешь|помогаешь|работаешь|отвечаешь|слушаешь|слышишь|знаешь)/,
-        /(?:плохо|ужасно|отвратительно|паршиво|херово|фигово|дерьмово).*(?:работаешь|отвечаешь|помогаешь|функционируешь)/,
-        /(?:тупой|глупый|дурацкий|идиотский|бестолковый).*(?:бот|робот|программа|система|ии|ай)/,
-        /(?:бесполезн|бесмысленн|никчемн|неэффективн).*(?:бот|робот|помощник|ассистент|система)/,
-      ],
-      confidence: 0.85,
-      reason: "bot_dissatisfaction",
-    },
-
-    // Выражение фрустрации
-    {
-      patterns: [
-        /(?:не могу|не получается|не выходит|никак не|ничего не).*(?:решить|сделать|понять|разобраться|добиться)/,
-        /(?:достал|надоел|устал|замучил|заколебал|задолбал).*(?:отвеча|говор|повтор|одн|тоже|так)/,
-        /(?:уже.*час|уже.*день|уже.*неделю|долго|давно).*(?:пытаюсь|стараюсь|мучаюсь|бьюсь|пробую)/,
-        /(?:сколько|как.*много|как.*долго).*(?:можно|раз|времени).*(?:объяснять|повторять|говорить|просить)/,
-      ],
-      confidence: 0.75,
-      reason: "user_frustration",
-    },
-
-    // Негативные эмоции
-    {
-      patterns: [
-        /(?:бесит|раздражает|злит|выводит|достает).*(?:это|так|бот|система|ситуация)/,
-        /(?:ужас|кошмар|капец|пипец|трындец|ппц).*(?:какой|что|как)/,
-        /(?:не.*нервы|нет.*сил|нет.*времени|нет.*терпения).*(?:больше|уже|на это)/,
-        /(?:иду|пойду|пишу|звоню).*(?:куда|кому).*(?:другому|еще|в.*другое)/,
-      ],
-      confidence: 0.7,
-      reason: "negative_emotions",
-    },
-
-    // Просьбы о переводе
-    {
-      patterns: [
-        /(?:можно|можете|может).*(?:перевести|переключить|перенаправить|передать)/,
-        /(?:есть|имеется|доступен).*(?:кто|кто то|кто нибудь).*(?:живой|человек|реальный)/,
-        /(?:кто.*нибудь|есть.*кто).*(?:может|сможет|поможет).*(?:человек|оператор|менедже?р)/,
-        /(?:работает|дежурит|есть).*(?:сейчас|щас|сегодня).*(?:кто|оператор|человек|менедже?р)/,
-      ],
-      confidence: 0.8,
-      reason: "transfer_request",
-    },
-
-    // Сомнения в возможностях ИИ
-    {
-      patterns: [
-        /(?:ты.*не.*можешь|не.*способен|не.*умеешь|не.*получится).*(?:помочь|решить|сделать)/,
-        /(?:это.*слишком|слишком.*сложно|слишком.*трудно).*(?:для.*тебя|для.*бота|для.*ии)/,
-        /(?:тут.*нужен|здесь.*нужен|нужен.*именно).*(?:человек|специалист|профессионал)/,
-        /(?:искусственный.*интеллект|бот|программа).*(?:не.*поймет|не.*разберется|не.*справится)/,
-      ],
-      confidence: 0.65,
-      reason: "ai_capability_doubt",
-    },
-
-    // Ключевые слова с вариациями написания
-    {
-      patterns: [
-        /(?:человек|челавек|чиловек|человека)(?:а|у|ом|е|и|ов)?/,
-        /(?:оператор|операто|оперетор)(?:а|у|ом|е|ы|ов)?/,
-        /(?:менеджер|менеджер|манагер|менагер)(?:а|у|ом|е|ы|ов)?/,
-        /(?:специалист|спец|спеиалист|специилист)(?:а|у|ом|е|ы|ов)?/,
-        /(?:поддержка|поддержку|поддержке|подержка|поддерка)/,
-        /(?:техподдержка|техпод|тех поддержка|техническая поддержка)/,
-      ],
-      confidence: 0.6,
-      reason: "keyword_match",
-    },
-  ];
-
-  static frustrationPatterns = [
-    // Выражение непонимания
-    {
-      patterns: [
-        /(?:не.*понима|не.*понятн|ничего.*не.*понятн|непонятн)(?:ю|о|а|ет|ть)?/,
-        /(?:что.*это|что.*такое|о.*чем|про.*что).*(?:ты|вы).*(?:говор|пиш|расска)/,
-        /(?:какой|какая|что.*за).*(?:бред|чушь|ерунда|нонсенс|абсурд)/,
-      ],
-      confidence: 0.8,
-    },
-
-    // Выражение усталости/раздражения
-    {
-      patterns: [
-        /(?:достал|надоел|устал|заколебал|задолбал|замучил|заебал)/,
-        /(?:не.*помога|не.*работа|не.*функциониру|сломал|глюч)/,
-        /(?:тупо|глупо|идиотски|бестолково|бесполезно|никчемно)/,
-      ],
-      confidence: 0.75,
-    },
-
-    // Выражение спешки/срочности
-    {
-      patterns: [
-        /(?:срочно|быстро|скорее|поскорее|немедленно|сейчас.*же)/,
-        /(?:времени.*нет|спешу|торопл|опаздыва|горит)/,
-        /(?:уже.*час|уже.*день|долго.*жду|долго.*пыта)/,
-      ],
-      confidence: 0.7,
-    },
-  ];
-
-  // Нормализация текста для лучшего распознавания
-  static normalizeForAnalysis(text) {
-    return text
-      .toLowerCase()
-      .replace(/ё/g, "е")
-      .replace(/[.,!?;:()\"\'`]/g, " ") // убираем пунктуацию
-      .replace(/\s+/g, " ") // убираем лишние пробелы
-      .trim();
-  }
-
-  // Проверка на запрос эскалации
-  static isEscalationRequest(message) {
-    const normalizedMessage = this.normalizeForAnalysis(message);
-
-    let maxConfidence = 0;
-    let matchedReason = null;
-
-    for (const group of this.escalationPatterns) {
-      for (const pattern of group.patterns) {
-        if (pattern.test(normalizedMessage)) {
-          if (group.confidence > maxConfidence) {
-            maxConfidence = group.confidence;
-            matchedReason = group.reason;
-          }
-        }
-      }
-    }
-
-    // Логируем для отладки
-    if (maxConfidence > 0.5) {
-      console.log(
-        `🔍 Escalation detected: confidence=${maxConfidence}, reason=${matchedReason}, message="${message.substring(
-          0,
-          50
-        )}..."`
-      );
-    }
-
-    return maxConfidence >= 0.55; // Понижен порог для более чувствительного распознавания
-  }
-
-  // Определение уровня фрустрации пользователя
-  static detectFrustration(message) {
-    const normalizedMessage = this.normalizeForAnalysis(message);
-
-    let maxConfidence = 0;
-
-    for (const group of this.frustrationPatterns) {
-      for (const pattern of group.patterns) {
-        if (pattern.test(normalizedMessage)) {
-          if (group.confidence > maxConfidence) {
-            maxConfidence = group.confidence;
-          }
-        }
-      }
-    }
-
-    return maxConfidence >= 0.6;
-  }
-
-  // Анализ эмоционального состояния
-  static analyzeEmotionalState(message, contextHistory = []) {
-    const normalizedMessage = this.normalizeForAnalysis(message);
-
-    // Позитивные индикаторы
-    const positivePatterns = [
-      /(?:спасибо|благодарю|отлично|прекрасно|хорошо|замечательно|супер|класс)/,
-      /(?:помог|получилось|понятно|ясно|разобрал|решил)/,
-    ];
-
-    // Негативные индикаторы
-    const negativePatterns = [
-      /(?:плохо|ужасно|отвратительно|кошмар|ужас|капец)/,
-      /(?:не.*нравится|не.*устраивает|не.*подходит|недоволен)/,
-    ];
-
-    let positiveScore = 0;
-    let negativeScore = 0;
-
-    positivePatterns.forEach((pattern) => {
-      if (pattern.test(normalizedMessage)) positiveScore += 1;
-    });
-
-    negativePatterns.forEach((pattern) => {
-      if (pattern.test(normalizedMessage)) negativeScore += 1;
-    });
-
-    // Анализ истории для выявления паттернов
-    const recentNegative = contextHistory
-      .slice(-3)
-      .filter((msg) => this.detectFrustration(msg) || negativeScore > 0).length;
-
-    return {
-      currentMood:
-        negativeScore > positiveScore
-          ? "negative"
-          : positiveScore > 0
-          ? "positive"
-          : "neutral",
-      shouldEscalate: recentNegative >= 2, // Эскалация после 2 негативных сообщений подряд
-    };
-  }
-
-  static async escalateToHuman({
-    sessionId,
-    userMessage,
-    context = {},
-    reason = "user_request",
-  }) {
-    const timestamp = new Date().toISOString();
-    const escalationData = {
-      sessionId,
-      userMessage,
-      context: {
-        ...context,
-        // Убираем чувствительную информацию
-        sessionInfo: context.sessionInfo
-          ? {
-              totalInteractions: context.sessionInfo.totalInteractions,
-              duration: context.sessionInfo.duration,
-            }
-          : null,
-      },
-      reason,
-      timestamp,
-      source: "maria-enhanced-ai",
-    };
-
-    // Логируем эскалацию
-    console.log(
-      `🚨 [ESCALATION] ${timestamp} - Session: ${sessionId}, Reason: ${reason}`
-    );
-
-    // В реальной системе здесь был бы вызов API службы поддержки
-    // await notifyHumanOperators(escalationData);
-
-    systemStats.escalations++;
-
-    return {
-      success: true,
-      escalationId: `esc_${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}`,
-      timestamp,
-      estimatedWaitTime: this.getEstimatedWaitTime(reason),
-    };
-  }
-
-  static getEstimatedWaitTime(reason) {
-    const waitTimes = {
-      direct_human_request: "2-3 минуты",
-      bot_dissatisfaction: "3-5 минут",
-      user_frustration: "1-2 минуты",
-      negative_emotions: "2-4 минуты",
-      transfer_request: "1-3 минуты",
-      ai_capability_doubt: "3-5 минут",
-      keyword_match: "5-7 минут",
-    };
-
-    return waitTimes[reason] || "3-5 минут";
-  }
-
-  static getEscalationResponse(reason, escalationId, waitTime) {
-    const responses = {
-      direct_human_request: `Конечно! Я уже передаю ваш запрос живому оператору. Ожидаемое время ожидания: ${waitTime}. Оператор скоро с вами свяжется!`,
-      bot_dissatisfaction: `Понимаю ваше недовольство. Передаю ваш запрос специалисту, который сможет лучше помочь. Ожидаемое время ожидания: ${waitTime}.`,
-      user_frustration: `Вижу, что возникли сложности. Сейчас подключу живого оператора для персональной помощи. Ожидание: ${waitTime}.`,
-      negative_emotions: `Извините за доставленные неудобства. Передаю ваш случай специалисту службы поддержки. Время ожидания: ${waitTime}.`,
-      transfer_request: `Без проблем! Перевожу вас к живому оператору. Примерное время ожидания: ${waitTime}. Пожалуйста, оставайтесь на связи.`,
-      ai_capability_doubt: `Понимаю, что вопрос требует человеческого подхода. Подключаю специалиста. Ожидание: ${waitTime}.`,
-      keyword_match: `Передаю ваш запрос живому оператору. Время ожидания: ${waitTime}. Скоро с вами свяжутся!`,
-    };
-
-    return (
-      responses[reason] ||
-      `Конечно! Передаю ваш запрос оператору. Ожидаемое время: ${waitTime}. Оператор скоро с вами свяжется!`
-    );
-  }
-}
-
-// Основной API endpoint - обработка диалога
 app.post("/api/chat/query", async (req, res) => {
   const processingStart = Date.now();
   try {
@@ -620,6 +196,7 @@ app.post("/api/chat/query", async (req, res) => {
         userMessage: message,
         context: dialogContext,
         reason: escalationReason,
+        stats: systemStats,
       });
 
       const escalationResponse = {
