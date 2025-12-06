@@ -54,42 +54,72 @@ function loadSberQuAD(filePath) {
   return dataArray;
 }
 
+function buildContent(context = '', answers) {
+  const answerText = Array.isArray(answers?.text) && answers.text.length > 0 ? answers.text[0] : '';
+
+  if (!context && answerText) {
+    return `Ответ: ${answerText}`;
+  }
+
+  if (context && answerText) {
+    return `${context}\n\nОтвет: ${answerText}`;
+  }
+
+  return context;
+}
+
+function normalizeEntry(topic, { topicIndex, paragraphIndex, qaIndex } = {}) {
+  const idParts = ['sberquad'];
+  const title = topic.title || `SberQuAD-${topicIndex ?? 0}`;
+
+  if (topicIndex !== undefined) idParts.push(topicIndex);
+  if (paragraphIndex !== undefined) idParts.push(paragraphIndex);
+  if (qaIndex !== undefined) idParts.push(qaIndex);
+  if (topic.id !== undefined) idParts.push(topic.id);
+
+  const question = topic.question || topic.q ?? '';
+  const content = buildContent(topic.context, topic.answers);
+
+  return {
+    id: idParts.join('_'),
+    title: `${title}${question ? ': ' + question : ''}`.slice(0, 180),
+    aliases: question ? [question] : [],
+    content,
+    tags: ['sberquad', 'russian'],
+    category: 'Русский датасет',
+    lastUpdated: new Date().toISOString().split('T')[0],
+  };
+}
+
 function convertToKnowledgeBase(data, limit) {
   const entries = [];
 
   data.forEach((topic, topicIndex) => {
-    const title = topic.title || `SberQuAD-${topicIndex}`;
-
     if (Array.isArray(topic.paragraphs)) {
       topic.paragraphs.forEach((paragraph, paragraphIndex) => {
-        const context = paragraph.context || '';
-
         paragraph.qas?.forEach((qa, qaIndex) => {
-          entries.push({
-            id: `sberquad_${topicIndex}_${paragraphIndex}_${qaIndex}`,
-            title: `${title}: ${qa.question}`.slice(0, 180),
-            aliases: [qa.question],
-            content: context,
-            tags: ['sberquad', 'russian'],
-            category: 'Русский датасет',
-            lastUpdated: new Date().toISOString().split('T')[0],
-          });
+          entries.push(normalizeEntry({ ...qa, title: topic.title, context: paragraph.context }, {
+            topicIndex,
+            paragraphIndex,
+            qaIndex,
+          }));
         });
       });
-    } else if (topic.context || topic.question) {
-      entries.push({
-        id: topic.id ? `sberquad_${topic.id}` : `sberquad_${topicIndex}`,
-        title: `${title}${topic.title ? ': ' : ''}${topic.question || title}`.slice(0, 180),
-        aliases: topic.question ? [topic.question] : [],
-        content: topic.context || '',
-        tags: ['sberquad', 'russian'],
-        category: 'Русский датасет',
-        lastUpdated: new Date().toISOString().split('T')[0],
-      });
+      return;
+    }
+
+    if (topic.context || topic.question || topic.q) {
+      entries.push(normalizeEntry(topic, { topicIndex }));
     }
   });
 
-  return typeof limit === 'number' && limit > 0 ? entries.slice(0, limit) : entries;
+  const finalEntries = typeof limit === 'number' && limit > 0 ? entries.slice(0, limit) : entries;
+
+  if (finalEntries.length === 0) {
+    throw new Error('Не удалось сформировать ни одной записи: проверьте поля context/question/answers в исходных данных');
+  }
+
+  return finalEntries;
 }
 
 function saveJsonl(entries, outPath) {
