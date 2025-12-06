@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { SemanticSearchEngine } = require('../src/modules/search/SemanticSearchEngine');
+const { LocalEmbeddingRuntime } = require('../src/services/localEmbeddingRuntime');
 const { loadKnowledgeBase } = require('../src/services/knowledgeBase');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
@@ -107,7 +108,8 @@ function persistOutputs(metrics, failures) {
 
 function main() {
   const knowledgeBase = loadKB();
-  const searchEngine = new SemanticSearchEngine(knowledgeBase);
+  const embeddingRuntime = new LocalEmbeddingRuntime({ knowledgeBase });
+  const searchEngine = new SemanticSearchEngine(knowledgeBase, { embeddingRuntime });
   const dataset = buildDataset(knowledgeBase);
   const metrics = evaluateDataset(searchEngine, dataset);
   const failures = metrics.results.filter((r) => !r.success);
