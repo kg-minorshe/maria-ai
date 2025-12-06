@@ -1,4 +1,4 @@
-const tf = require("@tensorflow/tfjs-node");
+const tf = require("@tensorflow/tfjs");
 const { LRUCache } = require("lru-cache");
 
 class LocalEmbeddingRuntime {
