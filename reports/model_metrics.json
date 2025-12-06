@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2025-12-06T10:55:04.246687",
+  "generatedAt": "2025-12-06T10:58:59.607021",
   "models": [
     {
       "model": "golden-reference",
-      "generatedAt": "2025-12-06T10:55:04.245782",
+      "generatedAt": "2025-12-06T10:58:59.605806",
       "overall": 0.984,
       "scenarios": {
         "instruction": 1.0,
@@ -66,7 +66,7 @@
           "score": 1.0
         }
       ],
-      "deltaOverall": 0.334,
+      "deltaOverall": 0.0,
       "deltaRegression": 0.0
     }
   ]
