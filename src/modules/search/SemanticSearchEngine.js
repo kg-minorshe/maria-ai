@@ -28,6 +28,7 @@ class SemanticSearchEngine {
             // Строгие пороги, чтобы не поднимать нерелевантные документы
             hallucinationMinScore: 1.2,
             hallucinationMinCoverage: 0.35,
+            semanticCandidateLimit: 200,
             boostFactors: {
                 title: 4.0,
                 aliases: 2.5,
@@ -228,7 +229,12 @@ class SemanticSearchEngine {
         const results = [];
         const queryEmbedding = this.embeddingRuntime?.buildQueryEmbedding(processedQuery.originalQuery);
 
-        this.knowledgeBase.forEach(document => {
+        const candidates = this.getSemanticCandidates(
+            processedQuery,
+            options.semanticCandidateLimit
+        );
+
+        candidates.forEach(document => {
             const semanticScore = queryEmbedding
                 ? this.embeddingRuntime.calculateSimilarityWithEmbedding(queryEmbedding, document)
                 : this.semanticAnalyzer.calculateSimilarity(
@@ -247,6 +253,40 @@ class SemanticSearchEngine {
         });
 
         return results;
+    }
+
+    getSemanticCandidates(processedQuery, limit = 200) {
+        const candidateMap = new Map();
+
+        const lookupTokens = [
+            ...processedQuery.tokens,
+            ...processedQuery.expandedTokens,
+            ...processedQuery.bigramTokens,
+            ...processedQuery.trigramTokens
+        ];
+
+        lookupTokens.forEach(token => {
+            const entries = this.indexCache.get(token);
+            if (!entries) return;
+
+            entries.forEach(entry => {
+                const current = candidateMap.get(entry.id) || { score: 0, document: entry.document };
+                const score = current.score + 1 + (entry.frequency || 0);
+                candidateMap.set(entry.id, { score, document: entry.document });
+            });
+        });
+
+        let candidates = Array.from(candidateMap.values())
+            .sort((a, b) => b.score - a.score)
+            .slice(0, Math.max(limit, 1))
+            .map(entry => entry.document);
+
+        if (!candidates.length) {
+            // Фоллбэк: берём небольшой срез базы знаний, чтобы не обходить весь массив
+            candidates = this.knowledgeBase.slice(0, Math.max(limit, 1));
+        }
+
+        return candidates;
     }
 
     calculateExactMatchScore(document, processedQuery, options) {
