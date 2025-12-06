@@ -33,11 +33,13 @@ const {
   createEmptyKnowledgeBase,
 } = require("./services/knowledgeBase");
 const { LocalEmbeddingRuntime } = require("./services/localEmbeddingRuntime");
+const { ExternalSemanticSearchClient } = require("./services/externalSemanticSearchClient");
 const {
   EnhancedEscalationService,
 } = require("./services/enhancedEscalationService");
 const { performSystemHealthCheck } = require("./services/systemHealth");
 const { normalizeText } = require("./utils/text");
+const { logStep, logError } = require("./utils/logger");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -62,6 +64,7 @@ let cognitiveModeling;
 let emotionalIntelligence;
 let reasoningEngine;
 let embeddingRuntime;
+let externalSemanticClient;
 
 // Статистика работы системы
 let systemStats = {
@@ -118,8 +121,14 @@ async function initializeSystem() {
     contextManager = new DialogContextManager();
     queryAnalyzer = new AdvancedQueryAnalyzer();
     embeddingRuntime = new LocalEmbeddingRuntime({ knowledgeBase });
+    externalSemanticClient = new ExternalSemanticSearchClient({
+      baseUrl: process.env.SEMANTIC_SERVICE_URL,
+      apiKey: process.env.SEMANTIC_SERVICE_KEY,
+      timeoutMs: Number(process.env.SEMANTIC_SERVICE_TIMEOUT_MS) || 5000,
+    });
     searchEngine = new SemanticSearchEngine(knowledgeBase, {
       embeddingRuntime,
+      externalSemanticClient,
     });
     responseGenerator = new ResponseGenerator();
     ambiguityResolver = new AmbiguityResolver();
@@ -171,9 +180,11 @@ console.log("✅ Система прошла проверку готовност
 // Расширенная система эскалации с более гибким распознаванием
 app.post("/api/chat/query", async (req, res) => {
   const processingStart = Date.now();
+  logStep("request:received", { path: req.path, method: req.method });
   try {
     const { message } = req.body;
     devLog("Запрос получен", { message });
+    logStep("request:payload", { messageLength: message?.length });
 
     systemStats.totalQueries++;
 
@@ -208,6 +219,7 @@ app.post("/api/chat/query", async (req, res) => {
     devLog("Сессия активна", { sessionId });
 
     // Получаем историю сообщений для анализа эмоционального состояния
+    const contextStart = Date.now();
     const dialogContext = contextManager.getRelevantContext(sessionId, message);
     const messageHistory =
       dialogContext.recentMessages?.map((m) => m.content) || [];
@@ -215,13 +227,23 @@ app.post("/api/chat/query", async (req, res) => {
       recentMessages: messageHistory.length,
       currentTopic: dialogContext.currentTopic,
     });
+    logStep("context:retrieved", {
+      durationMs: Date.now() - contextStart,
+      recentMessages: messageHistory.length,
+      currentTopic: dialogContext.currentTopic,
+    });
 
     // Анализируем эмоциональное состояние
+    const emotionalAnalysisStart = Date.now();
     const emotionalAnalysis = EnhancedEscalationService.analyzeEmotionalState(
       message,
       messageHistory
     );
     devLog("Эмоциональный анализ выполнен", emotionalAnalysis);
+    logStep("emotion:analyzed", {
+      durationMs: Date.now() - emotionalAnalysisStart,
+      dominant: emotionalAnalysis.primaryEmotion,
+    });
 
     // Проверка на эскалацию
     if (
@@ -260,6 +282,10 @@ app.post("/api/chat/query", async (req, res) => {
         escalationId: escalationResult.escalationId,
         reason: escalationReason,
       });
+      logStep("escalation:completed", {
+        escalationId: escalationResult.escalationId,
+        reason: escalationReason,
+      });
 
       // Сохраняем в контекст
       contextManager.addUserMessage(sessionId, message);
@@ -273,6 +299,11 @@ app.post("/api/chat/query", async (req, res) => {
           reason: escalationReason,
         }
       );
+
+      logStep("request:completed", {
+        type: "escalation",
+        processingTime: Date.now() - processingStart,
+      });
 
       return res.json(escalationResponse);
     }
@@ -301,17 +332,28 @@ app.post("/api/chat/query", async (req, res) => {
         softEscalationResponse.message
       );
 
+      logStep("request:completed", {
+        type: "soft_escalation",
+        processingTime: Date.now() - processingStart,
+      });
+
       return res.json(softEscalationResponse);
     }
 
     // === ИСПРАВЛЕННАЯ КОГНИТИВНАЯ ОБРАБОТКА ===
 
     // 1. Получаем контекст
+    const contextRetrievalStart = Date.now();
     const context = contextManager.getRelevantContext(sessionId, message);
+    logStep("context:re-resolved", {
+      durationMs: Date.now() - contextRetrievalStart,
+      entities: context.recentEntities?.length,
+    });
 
     // 2. Строим когнитивную модель пользователя с защитой от ошибок
     let userProfile;
     try {
+      const cognitiveStart = Date.now();
       userProfile = cognitiveModeling.buildUserModel(sessionId, [
         {
           message,
@@ -322,9 +364,11 @@ app.post("/api/chat/query", async (req, res) => {
           emotionalState: "neutral",
         },
       ]);
+      logStep("cognitive:built", { durationMs: Date.now() - cognitiveStart });
     } catch (error) {
       console.error("❌ Ошибка построения когнитивной модели:", error);
       userProfile = cognitiveModeling.buildUserModel(sessionId, []);
+      logError("cognitive", "Fallback когнитивной модели", error);
     }
     devLog("Когнитивная модель пользователя сформирована", {
       cognitiveLoad: userProfile?.cognitiveLoad,
@@ -333,10 +377,15 @@ app.post("/api/chat/query", async (req, res) => {
     // 3. Анализируем эмоциональное состояние с защитой от ошибок
     let emotionalState;
     try {
+      const emotionalStateStart = Date.now();
       emotionalState = emotionalIntelligence.analyzeEmotionalState(
         message,
         context
       );
+      logStep("emotion:state", {
+        durationMs: Date.now() - emotionalStateStart,
+        primary: emotionalState.primaryEmotion?.type,
+      });
     } catch (error) {
       console.error("❌ Ошибка анализа эмоционального состояния:", error);
       emotionalState = {
@@ -346,6 +395,7 @@ app.post("/api/chat/query", async (req, res) => {
         suggestedTone: "neutral",
         triggers: [],
       };
+      logError("emotion", "Fallback эмоционального состояния", error);
     }
     devLog("Эмоциональное состояние определено", {
       primaryEmotion: emotionalState.primaryEmotion?.type,
@@ -355,30 +405,46 @@ app.post("/api/chat/query", async (req, res) => {
     // 4. Предсказываем следующие вопросы с защитой от ошибок
     let predictedQuestions = [];
     try {
+      const predictionStart = Date.now();
       predictedQuestions = cognitiveModeling.predictNextQuestion(
         userProfile,
         context
       );
+      logStep("cognitive:predicted", {
+        durationMs: Date.now() - predictionStart,
+        questions: predictedQuestions.length,
+      });
     } catch (error) {
       console.error("❌ Ошибка предсказания вопросов:", error);
       predictedQuestions = [];
+      logError("cognitive", "Fallback predicted questions", error);
     }
     devLog("Предсказанные вопросы", predictedQuestions);
 
     // 5. Разрешаем ссылки
+    const referenceStart = Date.now();
     const resolvedMessage = contextManager.resolveReferences(
       sessionId,
       message
     );
+    logStep("context:references", {
+      durationMs: Date.now() - referenceStart,
+      changed: resolvedMessage !== message,
+    });
     devLog("Разрешенные ссылки в сообщении", { resolvedMessage });
 
     // 6. Анализ запроса с защитой от ошибок
     let queryAnalysis;
     try {
+      const analysisStart = Date.now();
       queryAnalysis = queryAnalyzer.analyzeComplexQuery(resolvedMessage, {
         ...context,
         userProfile,
         emotionalState,
+      });
+      logStep("analysis:completed", {
+        durationMs: Date.now() - analysisStart,
+        intent: queryAnalysis.intent?.intent,
       });
     } catch (error) {
       console.error("❌ Ошибка анализа запроса:", error);
@@ -389,6 +455,7 @@ app.post("/api/chat/query", async (req, res) => {
         topics: [],
         requiresReasoning: false,
       };
+      logError("analysis", "Fallback анализа запроса", error);
     }
     devLog("Анализ запроса завершен", queryAnalysis);
 
@@ -403,6 +470,7 @@ app.post("/api/chat/query", async (req, res) => {
     const shouldRunReasoning = needsReasoning && !isFastDevMode;
 
     try {
+      const reasoningStart = Date.now();
       if (shouldRunReasoning) {
         reasoningResult = reasoningEngine.reason(
           resolvedMessage,
@@ -417,9 +485,15 @@ app.post("/api/chat/query", async (req, res) => {
           justification: "Включен ускоренный режим разработки.",
         };
       }
+      logStep("reasoning:completed", {
+        durationMs: Date.now() - reasoningStart,
+        executed: shouldRunReasoning,
+        type: reasoningResult?.reasoningType,
+      });
     } catch (error) {
       console.error("❌ Ошибка reasoning:", error);
       reasoningResult = null;
+      logError("reasoning", "Reasoning упал", error);
     }
     devLog("Reasoning выполнен", {
       needsReasoning,
@@ -431,8 +505,9 @@ app.post("/api/chat/query", async (req, res) => {
     let searchResults;
     const shouldRunSemanticSearch = !isFastDevMode;
     try {
+      const searchStart = Date.now();
       if (shouldRunSemanticSearch) {
-        searchResults = searchEngine.search(resolvedMessage, {
+        searchResults = await searchEngine.search(resolvedMessage, {
           ...context,
           userProfile,
           emotionalState,
@@ -448,6 +523,14 @@ app.post("/api/chat/query", async (req, res) => {
           justification: "Включен ускоренный режим разработки.",
         };
       }
+      const searchResultsList = Array.isArray(searchResults)
+        ? searchResults
+        : searchResults?.results || [];
+      logStep("search:completed", {
+        durationMs: Date.now() - searchStart,
+        results: searchResultsList.length,
+        skippedForSpeed: !shouldRunSemanticSearch,
+      });
     } catch (error) {
       console.error("❌ Ошибка семантического поиска:", error);
       searchResults = {
@@ -455,16 +538,23 @@ app.post("/api/chat/query", async (req, res) => {
         confidence: 0,
         totalMatches: 0,
       };
+      logError("search", "Семантический поиск упал", error);
     }
+    const searchResultsList = Array.isArray(searchResults)
+      ? searchResults
+      : searchResults?.results || [];
     devLog("Семантический поиск завершен", {
-      totalMatches: searchResults.totalMatches,
+      totalMatches: searchResultsList.length,
       confidence: searchResults.confidence,
       skippedForSpeed: !shouldRunSemanticSearch,
     });
 
+    const normalizedSearchResults = searchResultsList;
+
     // 9. Генерация ответа с учётом когнитивной модели и защитой от ошибок
     let response;
     try {
+      const responseStart = Date.now();
       const responseStrategy = userProfile?.getAdaptedResponseStrategy?.() || {
         style: "balanced",
         detailLevel: "medium",
@@ -473,7 +563,7 @@ app.post("/api/chat/query", async (req, res) => {
 
       response = responseGenerator.generateResponse(
         queryAnalysis,
-        searchResults,
+        normalizedSearchResults,
         {
           ...context,
           userProfile,
@@ -482,6 +572,10 @@ app.post("/api/chat/query", async (req, res) => {
           reasoningResult,
         }
       );
+      logStep("response:generated", {
+        durationMs: Date.now() - responseStart,
+        responseType: response.responseType,
+      });
     } catch (error) {
       console.error("❌ Ошибка генерации ответа:", error);
       response = {
@@ -491,6 +585,7 @@ app.post("/api/chat/query", async (req, res) => {
         confidence: 0,
         responseType: "error",
       };
+      logError("response", "Генерация ответа упала", error);
     }
     devLog("Ответ сгенерирован", {
       responseType: response.responseType,
@@ -512,6 +607,7 @@ app.post("/api/chat/query", async (req, res) => {
 
     // 11. Сохраняем в контекст с защитой от ошибок
     try {
+      const contextSaveStart = Date.now();
       contextManager.addUserMessage(sessionId, message, queryAnalysis.entities);
       contextManager.addAssistantResponse(
         sessionId,
@@ -528,8 +624,10 @@ app.post("/api/chat/query", async (req, res) => {
           },
         }
       );
+      logStep("context:updated", { durationMs: Date.now() - contextSaveStart });
     } catch (error) {
       console.error("❌ Ошибка сохранения контекста:", error);
+      logError("context", "Не удалось сохранить контекст", error);
     }
     devLog("Контекст обновлен", { sessionId });
 
@@ -581,6 +679,16 @@ app.post("/api/chat/query", async (req, res) => {
       sessionId: sessionId,
     };
 
+    systemStats.successfulResponses++;
+    systemStats.averageResponseTime =
+      (systemStats.averageResponseTime * (systemStats.totalQueries - 1) +
+        (Date.now() - processingStart)) /
+      systemStats.totalQueries;
+    logStep("request:completed", {
+      type: "success",
+      processingTime: Date.now() - processingStart,
+    });
+
     devLog("Финальный ответ готов", {
       processingTime: finalResponse.processingTime,
       confidence: finalResponse.confidence,
@@ -589,6 +697,7 @@ app.post("/api/chat/query", async (req, res) => {
     res.json(finalResponse);
   } catch (error) {
     console.error(`❌ Ошибка обработки запроса [${req.session.id}]:`, error);
+    logError("request", "Обработка запроса упала", error);
 
     res.status(500).json({
       error: "Внутренняя ошибка системы",
@@ -799,8 +908,14 @@ if (process.env.NODE_ENV === "development") {
       await reloadKnowledgeBaseService({ rootDir: ROOT_DIR });
       knowledgeBase = getKnowledgeBaseCache();
       embeddingRuntime = new LocalEmbeddingRuntime({ knowledgeBase });
+      externalSemanticClient = new ExternalSemanticSearchClient({
+        baseUrl: process.env.SEMANTIC_SERVICE_URL,
+        apiKey: process.env.SEMANTIC_SERVICE_KEY,
+        timeoutMs: Number(process.env.SEMANTIC_SERVICE_TIMEOUT_MS) || 5000,
+      });
       searchEngine = new SemanticSearchEngine(knowledgeBase, {
         embeddingRuntime,
+        externalSemanticClient,
       });
 
       res.json({

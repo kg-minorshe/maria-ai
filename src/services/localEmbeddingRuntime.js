@@ -1,5 +1,6 @@
 const tf = require("@tensorflow/tfjs");
 const { LRUCache } = require("lru-cache");
+const { logDebug } = require("../utils/logger");
 
 class LocalEmbeddingRuntime {
   constructor({
@@ -49,8 +50,15 @@ class LocalEmbeddingRuntime {
     }
 
     const cached = this.cache.get(normalizedText);
-    if (cached) return cached;
+    if (cached) {
+      logDebug("EmbeddingRuntime", "Кэшированный эмбеддинг", {
+        tokenCount: cached.length,
+        cached: true,
+      });
+      return cached;
+    }
 
+    const embedStart = Date.now();
     const tokens = this.tokenize(normalizedText);
     if (!tokens.length) {
       return this.zeroVector();
@@ -61,6 +69,10 @@ class LocalEmbeddingRuntime {
       : this.buildFallbackEmbedding(tokens);
 
     this.cache.set(normalizedText, embedding);
+    logDebug("EmbeddingRuntime", "Эмбеддинг создан", {
+      durationMs: Date.now() - embedStart,
+      tokenCount: tokens.length,
+    });
     return embedding;
   }
 

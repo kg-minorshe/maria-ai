@@ -1,7 +1,10 @@
+const { logStep, logDebug, logError } = require("../../utils/logger");
+
 class SemanticSearchEngine {
     constructor(knowledgeBase = [], options = {}) {
         this.knowledgeBase = knowledgeBase;
         this.embeddingRuntime = options.embeddingRuntime;
+        this.externalSemanticClient = options.externalSemanticClient;
         this.indexCache = new Map();
         this.synonyms = this.loadSynonyms();
         this.stopWords = new Set([
@@ -20,7 +23,7 @@ class SemanticSearchEngine {
         }
     }
 
-    search(query, context = {}, options = {}) {
+    async search(query, context = {}, options = {}) {
         const searchOptions = {
             maxResults: 15,
             minScore: 0.08,
@@ -44,31 +47,67 @@ class SemanticSearchEngine {
         };
 
         const startTime = Date.now();
-        
+        logStep("search:semantic:start", { query: query?.slice(0, 100) });
+
         try {
             // 1. Предобработка запроса
+            const preprocessStart = Date.now();
             const processedQuery = this.preprocessQuery(query, context);
-            
+            logDebug("SemanticSearch", "Предобработка завершена", {
+                durationMs: Date.now() - preprocessStart,
+                totalDurationMs: Date.now() - startTime,
+                tokens: processedQuery.tokens.length,
+                expandedTokens: processedQuery.expandedTokens.length,
+            });
+
             // 2. Многоэтапный поиск
             let results = [];
 
             // Этап 1: Точный поиск
+            const exactStart = Date.now();
             const exactResults = this.performExactSearch(processedQuery, searchOptions);
+            logStep("search:semantic:exact", {
+                durationMs: Date.now() - exactStart,
+                results: exactResults.length,
+            });
             results.push(...exactResults);
-            
+            logDebug("SemanticSearch", "Точный поиск", {
+                durationMs: Date.now() - startTime,
+                results: exactResults.length,
+            });
+
             // Этап 2: Нечеткий поиск (если недостаточно результатов)
             if (results.length < 5) {
+                const fuzzyStart = Date.now();
                 const fuzzyResults = this.performFuzzySearch(processedQuery, searchOptions);
+                logStep("search:semantic:fuzzy", {
+                    durationMs: Date.now() - fuzzyStart,
+                    results: fuzzyResults.length,
+                    seededResults: results.length,
+                });
                 results.push(...fuzzyResults);
+                logDebug("SemanticSearch", "Нечеткий поиск", {
+                    durationMs: Date.now() - startTime,
+                    results: fuzzyResults.length,
+                });
             }
 
             // Этап 3: Семантический поиск
             if (searchOptions.semanticSimilarity && results.length < 8) {
-                const semanticResults = this.performSemanticSearch(processedQuery, {
+                const semanticStart = Date.now();
+                const semanticResults = await this.performSemanticSearch(processedQuery, {
                     ...searchOptions,
                     semanticDeadline: startTime + searchOptions.semanticSearchTimeout
                 });
+                logStep("search:semantic:semantic", {
+                    durationMs: Date.now() - semanticStart,
+                    results: semanticResults.length,
+                });
                 results.push(...semanticResults);
+                logDebug("SemanticSearch", "Семантический поиск", {
+                    durationMs: Date.now() - startTime,
+                    results: semanticResults.length,
+                });
             }
             
             // 3. Убираем дубликаты
@@ -95,6 +134,12 @@ class SemanticSearchEngine {
                 searchOptions
             );
 
+            logStep("search:semantic:completed", {
+                durationMs: Date.now() - startTime,
+                totalCandidates: results.length,
+                returned: finalResults.length,
+            });
+
             // Добавляем метаданные поиска
             finalResults.forEach(result => {
                 result.searchMetadata = {
@@ -108,6 +153,7 @@ class SemanticSearchEngine {
 
         } catch (error) {
             console.error('Ошибка в поиске:', error);
+            logError("SemanticSearch", "Ошибка во время поиска", error);
             return [];
         }
     }
@@ -229,18 +275,76 @@ class SemanticSearchEngine {
         return results;
     }
 
-    performSemanticSearch(processedQuery, options) {
+    async performSemanticSearch(processedQuery, options) {
         const results = [];
         const deadline = options.semanticDeadline || (Date.now() + 3000);
+        const embedStart = Date.now();
         const queryEmbedding = this.embeddingRuntime?.buildQueryEmbedding(processedQuery.originalQuery);
+        const embedDuration = Date.now() - embedStart;
+        logDebug("SemanticSearch", "Эмбеддинг запроса получен", {
+            durationMs: embedDuration,
+            usedRuntime: Boolean(this.embeddingRuntime),
+            fallback: !this.embeddingRuntime,
+        });
 
+        const candidateStart = Date.now();
         const candidates = this.getSemanticCandidates(
             processedQuery,
             options.semanticCandidateLimit
         );
+        const candidateDuration = Date.now() - candidateStart;
+        logStep("search:semantic:candidates", {
+            durationMs: candidateDuration,
+            candidates: candidates.length,
+            limit: options.semanticCandidateLimit,
+        });
+
+        if (this.externalSemanticClient?.isEnabled()) {
+            const externalStart = Date.now();
+            const externalResults = await this.externalSemanticClient.scoreQuery(
+                processedQuery.originalQuery,
+                candidates,
+                { limit: options.semanticCandidateLimit, timeoutMs: options.semanticSearchTimeout }
+            );
+
+            const mappedResults = externalResults
+                .map((result) => {
+                    const document = candidates.find((doc) => doc.id === result.id) || this.knowledgeBase.find((doc) => doc.id === result.id);
+                    if (!document || typeof result.score !== "number") return null;
+
+                    return {
+                        document,
+                        score: result.score,
+                        methods: ["semantic", "external-service"],
+                        scoreBreakdown: { external: result.score },
+                    };
+                })
+                .filter(Boolean);
+
+            logStep("search:semantic:external", {
+                durationMs: Date.now() - externalStart,
+                results: mappedResults.length,
+                candidates: candidates.length,
+            });
+
+            if (mappedResults.length) {
+                return mappedResults;
+            }
+        }
+
+        let processedCandidates = 0;
+        let skippedCandidates = 0;
+        let totalScoreTime = 0;
+        let lastCheckpoint = Date.now();
 
         for (const document of candidates) {
+            const perCandidateStart = Date.now();
             if (Date.now() > deadline) {
+                logStep("search:semantic:timeout", {
+                    processed: processedCandidates,
+                    elapsedMs: Date.now() - embedStart,
+                    deadlineMs: options.semanticSearchTimeout,
+                });
                 break;
             }
 
@@ -251,6 +355,17 @@ class SemanticSearchEngine {
                     document.content
                 );
 
+            processedCandidates += 1;
+            totalScoreTime += Date.now() - perCandidateStart;
+            if (processedCandidates % 50 === 0 || Date.now() - lastCheckpoint > 500) {
+                logDebug("SemanticSearch", "Прогресс оценки кандидатов", {
+                    processed: processedCandidates,
+                    total: candidates.length,
+                    elapsedMs: Date.now() - embedStart,
+                });
+                lastCheckpoint = Date.now();
+            }
+
             if (semanticScore > 0.2) {
                 results.push({
                     document,
@@ -258,8 +373,20 @@ class SemanticSearchEngine {
                     methods: ['semantic', queryEmbedding ? 'neural-embedding' : 'lexical'],
                     scoreBreakdown: { semantic: semanticScore }
                 });
+            } else {
+                skippedCandidates += 1;
             }
         }
+
+        const scoringDuration = Date.now() - candidateStart - candidateDuration;
+        logStep("search:semantic:scoring", {
+            durationMs: scoringDuration,
+            processed: processedCandidates,
+            skipped: skippedCandidates,
+            avgPerCandidateMs: processedCandidates ? Number((totalScoreTime / processedCandidates).toFixed(2)) : 0,
+            embedMs: embedDuration,
+            candidatePrepMs: candidateDuration,
+        });
 
         return results;
     }
