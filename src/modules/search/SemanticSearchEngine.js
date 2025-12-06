@@ -1,18 +1,23 @@
 class SemanticSearchEngine {
-    constructor(knowledgeBase = []) {
+    constructor(knowledgeBase = [], options = {}) {
         this.knowledgeBase = knowledgeBase;
+        this.embeddingRuntime = options.embeddingRuntime;
         this.indexCache = new Map();
         this.synonyms = this.loadSynonyms();
         this.stopWords = new Set([
-            'и', 'в', 'на', 'с', 'по', 'для', 'от', 'до', 'при', 'про', 'под', 'над', 
+            'и', 'в', 'на', 'с', 'по', 'для', 'от', 'до', 'при', 'про', 'под', 'над',
             'через', 'между', 'без', 'против', 'вместо', 'кроме', 'около', 'возле'
         ]);
         this.stemmer = new RussianStemmer();
         this.fuzzyMatcher = new FuzzyMatcher();
-        this.semanticAnalyzer = new SemanticAnalyzer();
+        this.semanticAnalyzer = new SemanticAnalyzer({ embeddingRuntime: this.embeddingRuntime });
         
         // Предварительная индексация
         this.buildSearchIndex();
+
+        if (this.embeddingRuntime) {
+            this.embeddingRuntime.indexKnowledgeBase(this.knowledgeBase);
+        }
     }
 
     search(query, context = {}, options = {}) {
@@ -203,18 +208,21 @@ class SemanticSearchEngine {
 
     performSemanticSearch(processedQuery, options) {
         const results = [];
+        const queryEmbedding = this.embeddingRuntime?.buildQueryEmbedding(processedQuery.originalQuery);
 
         this.knowledgeBase.forEach(document => {
-            const semanticScore = this.semanticAnalyzer.calculateSimilarity(
-                processedQuery.originalQuery, 
-                document.content
-            );
-            
+            const semanticScore = queryEmbedding
+                ? this.embeddingRuntime.calculateSimilarityWithEmbedding(queryEmbedding, document)
+                : this.semanticAnalyzer.calculateSimilarity(
+                    processedQuery.originalQuery,
+                    document.content
+                );
+
             if (semanticScore > 0.2) {
                 results.push({
                     document,
                     score: semanticScore * 0.8, // немного понижаем вес семантического поиска
-                    methods: ['semantic'],
+                    methods: ['semantic', queryEmbedding ? 'neural-embedding' : 'lexical'],
                     scoreBreakdown: { semantic: semanticScore }
                 });
             }
@@ -750,6 +758,10 @@ class FuzzyMatcher {
 }
 
 class SemanticAnalyzer {
+    constructor({ embeddingRuntime } = {}) {
+        this.embeddingRuntime = embeddingRuntime;
+    }
+
     calculateSimilarity(text1, text2) {
         // Упрощенный семантический анализ на основе пересечения концептов
         const concepts1 = this.extractConcepts(text1);
