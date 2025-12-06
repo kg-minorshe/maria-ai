@@ -4,19 +4,33 @@ const session = require("express-session");
 const path = require("path");
 
 // Импорт всех модулей
-const { DialogContextManager } = require("./modules/dialog/DialogContextManager");
-const { AdvancedQueryAnalyzer } = require("./modules/analysis/AdvancedQueryAnalyzer");
-const { SemanticSearchEngine } = require("./modules/search/SemanticSearchEngine");
+const {
+  DialogContextManager,
+} = require("./modules/dialog/DialogContextManager");
+const {
+  AdvancedQueryAnalyzer,
+} = require("./modules/analysis/AdvancedQueryAnalyzer");
+const {
+  SemanticSearchEngine,
+} = require("./modules/search/SemanticSearchEngine");
 const { ResponseGenerator } = require("./modules/response/ResponseGenerator");
-const { AmbiguityResolver } = require("./modules/clarification/AmbiguityResolver");
-const { CognitiveUserModeling } = require("./modules/user/CognitiveUserModeling");
-const { EmotionalIntelligence } = require("./modules/emotion/EmotionalIntelligence");
+const {
+  AmbiguityResolver,
+} = require("./modules/clarification/AmbiguityResolver");
+const {
+  CognitiveUserModeling,
+} = require("./modules/user/CognitiveUserModeling");
+const {
+  EmotionalIntelligence,
+} = require("./modules/emotion/EmotionalIntelligence");
 const { ReasoningEngine } = require("./modules/reasoning/ReasoningEngine");
 const {
   loadKnowledgeBase: loadKnowledgeBaseService,
   createEmptyKnowledgeBase,
 } = require("./services/knowledgeBase");
-const { EnhancedEscalationService } = require("./services/enhancedEscalationService");
+const {
+  EnhancedEscalationService,
+} = require("./services/enhancedEscalationService");
 const { performSystemHealthCheck } = require("./services/systemHealth");
 const { normalizeText } = require("./utils/text");
 
@@ -115,8 +129,11 @@ function initializeSystem() {
 
 function loadKnowledgeBase() {
   try {
-    const { knowledgeBase: combinedKnowledgeBase, projectKnowledgeBase, generalKnowledgeBase } =
-      loadKnowledgeBaseService({ rootDir: ROOT_DIR });
+    const {
+      knowledgeBase: combinedKnowledgeBase,
+      projectKnowledgeBase,
+      generalKnowledgeBase,
+    } = loadKnowledgeBaseService({ rootDir: ROOT_DIR });
 
     knowledgeBase = combinedKnowledgeBase;
     global.knowledgeBase = knowledgeBase;
@@ -130,9 +147,7 @@ function loadKnowledgeBase() {
   }
 }
 
-  console.log("✅ Система прошла проверку готовности");
-}
-
+console.log("✅ Система прошла проверку готовности");
 
 // Расширенная система эскалации с более гибким распознаванием
 app.post("/api/chat/query", async (req, res) => {
