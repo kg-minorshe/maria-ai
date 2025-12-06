@@ -19,7 +19,7 @@ function resolveKnowledgePaths(rootDir) {
   };
 }
 
-function loadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
+async function loadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
   if (cachedKnowledgeBase) {
     console.log(
       `ℹ️  Используется предзагруженная база знаний в памяти (${cachedKnowledgeBase.length} статей)`
@@ -34,11 +34,15 @@ function loadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__
   return reloadKnowledgeBase({ projectPath, generalPath, rootDir });
 }
 
-function reloadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
+async function reloadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
   console.log("⏳ Предзагрузка базы знаний в оперативную память...");
   knowledgeBaseStatus = "loading";
 
-  const loaded = loadKnowledgeBaseFromDisk({ projectPath, generalPath, rootDir });
+  const loaded = await loadKnowledgeBaseFromStorage({
+    projectPath,
+    generalPath,
+    rootDir,
+  });
 
   cachedKnowledgeBase = loaded.knowledgeBase;
   cachedSources = {
@@ -58,36 +62,48 @@ function reloadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(
   };
 }
 
-function loadKnowledgeBaseFromDisk({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
+async function loadKnowledgeBaseFromStorage({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
   const paths = resolveKnowledgePaths(rootDir);
 
   const resolvedProjectPath = projectPath || process.env.KB_PROJECT_PATH || paths.project;
   const resolvedGeneralPath = generalPath || process.env.KB_GENERAL_PATH || paths.general;
   const russianDatasetPath = process.env.KB_RUSSIAN_PATH;
 
-  const projectKnowledgeBase = loadKnowledgeBaseFile(
-    resolvedProjectPath,
-    createSampleProjectKnowledgeBase,
-    "проектная база знаний"
+  const projectKnowledgeBase = appendSource(
+    loadKnowledgeBaseFile(
+      resolvedProjectPath,
+      createSampleProjectKnowledgeBase,
+      "проектная база знаний"
+    ),
+    "project"
   );
 
-  const generalKnowledgeBase = loadKnowledgeBaseFile(
-    resolvedGeneralPath,
-    createSampleGeneralKnowledgeBase,
-    "общая база знаний"
+  const generalKnowledgeBase = appendSource(
+    loadKnowledgeBaseFile(
+      resolvedGeneralPath,
+      createSampleGeneralKnowledgeBase,
+      "общая база знаний"
+    ),
+    "general"
   );
 
-  const russianDataset = loadRussianDataset({
-    rootDir,
-    datasetPath: russianDatasetPath,
-    limit: Number(process.env.KB_RUSSIAN_LIMIT || 750),
-  });
+  const russianDataset = appendSource(
+    await loadRussianDataset({
+      rootDir,
+      datasetPath: russianDatasetPath,
+      limit: Number(process.env.KB_RUSSIAN_LIMIT || 750),
+    }),
+    "russian"
+  );
 
-  const knowledgeBase = validateAndEnrichKnowledgeBase([
-    ...projectKnowledgeBase,
-    ...generalKnowledgeBase,
-    ...russianDataset,
-  ]);
+  const knowledgeBase = validateAndEnrichKnowledgeBase(
+    [
+      ...projectKnowledgeBase,
+      ...generalKnowledgeBase,
+      ...russianDataset,
+    ],
+    { withProgress: true }
+  );
 
   return {
     knowledgeBase,
@@ -149,9 +165,23 @@ function createSampleGeneralKnowledgeBase(kbPath) {
   console.log(`📝 Создан пример общей базы знаний: ${kbPath}`);
 }
 
-function validateAndEnrichKnowledgeBase(kb) {
+function appendSource(items, source) {
+  return items.map((item, index) => {
+    const enriched = { ...item, source };
+
+    if ((index + 1) % 1000 === 0) {
+      console.log(
+        `📥 Загружено ${index + 1} записей из источника "${source}" в оперативную память`
+      );
+    }
+
+    return enriched;
+  });
+}
+
+function validateAndEnrichKnowledgeBase(kb, { withProgress = false } = {}) {
   return kb.map((item, index) => {
-    return {
+    const enriched = {
       id: item.id || `auto_${index}`,
       title: item.title || "Без названия",
       aliases: Array.isArray(item.aliases) ? item.aliases : [],
@@ -162,7 +192,16 @@ function validateAndEnrichKnowledgeBase(kb) {
       contentLength: (item.content || "").length,
       aliasCount: Array.isArray(item.aliases) ? item.aliases.length : 0,
       tagCount: Array.isArray(item.tags) ? item.tags.length : 0,
+      source: item.source || "unknown",
     };
+
+    if (withProgress && (index + 1) % 1000 === 0) {
+      console.log(
+        `⚡️ В оперативную память загружено ${index + 1} нормализованных записей`
+      );
+    }
+
+    return enriched;
   });
 }
 
