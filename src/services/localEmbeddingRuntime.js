@@ -1,9 +1,30 @@
-const tf = require("@tensorflow/tfjs");
+const tf = require("@tensorflow/tfjs-node");
+const { LRUCache } = require("lru-cache");
 
 class LocalEmbeddingRuntime {
-  constructor({ knowledgeBase = [], embeddingSize = 256 } = {}) {
+  constructor({
+    knowledgeBase = [],
+    embeddingSize = 256,
+    cacheLimit = 5000,
+    cacheTTL = 10 * 60 * 1000,
+  } = {}) {
     this.embeddingSize = embeddingSize;
     this.tfAvailable = Boolean(tf);
+    this.cache = new LRUCache({ max: cacheLimit, ttl: cacheTTL });
+    this.stopWords = new Set([
+      "the",
+      "and",
+      "a",
+      "to",
+      "of",
+      "в",
+      "на",
+      "и",
+      "с",
+      "для",
+      "что",
+      "как",
+    ]);
     this.indexKnowledgeBase(knowledgeBase);
   }
 
@@ -13,49 +34,93 @@ class LocalEmbeddingRuntime {
       if (!item.embedding) {
         item.embedding = this.embedText(item.content || item.title || "");
       }
+
+      const normalizedKey = this.normalizeInput(item.content || item.title || "");
+      if (normalizedKey && item.embedding) {
+        this.cache.set(normalizedKey, this.ensureFloatVector(item.embedding));
+      }
     });
   }
 
   embedText(text = "") {
-    if (!text || typeof text !== "string") {
-      return new Float32Array(this.embeddingSize).fill(0);
+    const normalizedText = this.normalizeInput(text);
+    if (!normalizedText) {
+      return this.zeroVector();
     }
 
-    const tokens = this.tokenize(text);
+    const cached = this.cache.get(normalizedText);
+    if (cached) return cached;
+
+    const tokens = this.tokenize(normalizedText);
     if (!tokens.length) {
-      return new Float32Array(this.embeddingSize).fill(0);
+      return this.zeroVector();
     }
 
-    if (this.tfAvailable) {
-      return this.buildTensorEmbedding(tokens);
-    }
+    const embedding = this.tfAvailable
+      ? this.buildTensorEmbedding(tokens)
+      : this.buildFallbackEmbedding(tokens);
 
-    return this.buildFallbackEmbedding(tokens);
+    this.cache.set(normalizedText, embedding);
+    return embedding;
   }
 
   buildTensorEmbedding(tokens) {
-    const hashed = tokens.map((token) => this.hashToken(token) % this.embeddingSize);
-
+    const weighted = this.buildTokenWeights(tokens);
     const vector = tf.tidy(() => {
-      const indices = tf.tensor1d(hashed, "int32");
-      const oneHot = tf.oneHot(indices, this.embeddingSize);
-      const pooled = tf.mean(oneHot, 0);
-      const normalized = tf.div(pooled, tf.norm(pooled).add(1e-6));
-      return normalized.dataSync();
+      const tensor = tf.tensor1d(weighted);
+      const norm = tf.norm(tensor).add(1e-6);
+      return tf.div(tensor, norm).dataSync();
     });
 
     return Float32Array.from(vector);
   }
 
   buildFallbackEmbedding(tokens) {
+    const vector = this.buildTokenWeights(tokens);
+    return this.normalizeVector(vector);
+  }
+
+  buildTokenWeights(tokens) {
     const buffer = new Float32Array(this.embeddingSize).fill(0);
     tokens.forEach((token) => {
       const idx = this.hashToken(token) % this.embeddingSize;
-      buffer[idx] += 1;
+      const weight = 1 + Math.log(1 + token.length);
+      buffer[idx] += weight;
     });
+    return buffer;
+  }
 
-    const norm = Math.sqrt(buffer.reduce((acc, val) => acc + val * val, 0)) || 1;
-    return buffer.map((val) => val / norm);
+  normalizeVector(buffer) {
+    let norm = 0;
+    for (let i = 0; i < buffer.length; i++) {
+      norm += buffer[i] * buffer[i];
+    }
+    norm = Math.sqrt(norm) || 1;
+    for (let i = 0; i < buffer.length; i++) {
+      buffer[i] /= norm;
+    }
+    return buffer;
+  }
+
+  ensureFloatVector(vector) {
+    if (!vector || vector.length !== this.embeddingSize) {
+      return this.zeroVector();
+    }
+    return vector instanceof Float32Array ? vector : Float32Array.from(vector);
+  }
+
+  zeroVector() {
+    return new Float32Array(this.embeddingSize).fill(0);
+  }
+
+  normalizeInput(text) {
+    if (text === undefined || text === null) return "";
+    return text
+      .toString()
+      .normalize("NFKC")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
   }
 
   hashToken(token) {
@@ -69,10 +134,11 @@ class LocalEmbeddingRuntime {
 
   tokenize(text) {
     return text
+      .normalize("NFKC")
       .toLowerCase()
-      .replace(/[^a-zа-я0-9\s]/gi, " ")
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
       .split(/\s+/)
-      .filter(Boolean);
+      .filter((token) => token && token.length > 1 && !this.stopWords.has(token));
   }
 
   cosineSimilarity(vecA, vecB) {
@@ -101,8 +167,18 @@ class LocalEmbeddingRuntime {
 
   calculateSimilarityWithEmbedding(queryEmbedding, document) {
     if (!queryEmbedding || !document) return 0;
-    const documentEmbedding = document.embedding || this.embedText(document.content || document.title || "");
-    return this.cosineSimilarity(queryEmbedding, documentEmbedding);
+    const documentEmbedding =
+      document.embedding || this.embedText(document.content || document.title || "");
+
+    const normalizedDocumentEmbedding = this.ensureFloatVector(documentEmbedding);
+    if (!document.embedding) {
+      document.embedding = normalizedDocumentEmbedding;
+    }
+
+    return this.cosineSimilarity(
+      this.ensureFloatVector(queryEmbedding),
+      normalizedDocumentEmbedding
+    );
   }
 }
 
