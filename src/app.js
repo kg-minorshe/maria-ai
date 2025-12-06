@@ -33,6 +33,7 @@ const {
   createEmptyKnowledgeBase,
 } = require("./services/knowledgeBase");
 const { LocalEmbeddingRuntime } = require("./services/localEmbeddingRuntime");
+const { SemanticEmbeddingRuntime } = require("./services/semanticEmbeddingRuntime");
 const { ExternalSemanticSearchClient } = require("./services/externalSemanticSearchClient");
 const {
   EnhancedEscalationService,
@@ -65,6 +66,23 @@ let emotionalIntelligence;
 let reasoningEngine;
 let embeddingRuntime;
 let externalSemanticClient;
+
+async function createEmbeddingRuntime() {
+  const provider = (process.env.EMBEDDING_RUNTIME || "local").toLowerCase();
+
+  if (["semantic", "transformers", "xenova"].includes(provider)) {
+    const semanticRuntime = new SemanticEmbeddingRuntime({
+      modelId: process.env.EMBEDDING_MODEL_ID,
+      cacheDir: process.env.EMBEDDING_CACHE_DIR || path.join(ROOT_DIR, "data/models"),
+      cacheLimit: Number(process.env.EMBEDDING_CACHE_LIMIT) || 5000,
+    });
+
+    await semanticRuntime.indexKnowledgeBase(knowledgeBase);
+    return semanticRuntime;
+  }
+
+  return new LocalEmbeddingRuntime({ knowledgeBase });
+}
 
 // Статистика работы системы
 let systemStats = {
@@ -120,7 +138,7 @@ async function initializeSystem() {
     // Инициализация компонентов
     contextManager = new DialogContextManager();
     queryAnalyzer = new AdvancedQueryAnalyzer();
-    embeddingRuntime = new LocalEmbeddingRuntime({ knowledgeBase });
+    embeddingRuntime = await createEmbeddingRuntime();
     externalSemanticClient = new ExternalSemanticSearchClient({
       baseUrl: process.env.SEMANTIC_SERVICE_URL,
       apiKey: process.env.SEMANTIC_SERVICE_KEY,
