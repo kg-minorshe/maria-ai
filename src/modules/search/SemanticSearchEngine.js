@@ -20,6 +20,9 @@ class SemanticSearchEngine {
             maxResults: 15,
             minScore: 0.08,
             fuzzyThreshold: 0.7,
+            // Строгие пороги, чтобы не поднимать нерелевантные документы
+            hallucinationMinScore: 1.2,
+            hallucinationMinCoverage: 0.35,
             boostFactors: {
                 title: 4.0,
                 aliases: 2.5,
@@ -68,12 +71,19 @@ class SemanticSearchEngine {
             
             // 5. Финальное ранжирование
             results = this.finalRanking(results, processedQuery, context);
-            
+
             // 6. Фильтрация и ограничение результатов
-            const finalResults = results
+            let finalResults = results
                 .filter(result => result.score >= searchOptions.minScore)
                 .sort((a, b) => b.score - a.score)
                 .slice(0, searchOptions.maxResults);
+
+            // 7. Отбрасываем нерелевантные совпадения (hallucination-guard)
+            finalResults = this.applyHallucinationGuard(
+                finalResults,
+                processedQuery,
+                searchOptions
+            );
 
             // Добавляем метаданные поиска
             finalResults.forEach(result => {
@@ -606,6 +616,41 @@ class SemanticSearchEngine {
         ]);
 
         return synonyms;
+    }
+
+    applyHallucinationGuard(results, processedQuery, options) {
+        const minScore = options.hallucinationMinScore || 1.2;
+        const minCoverage = options.hallucinationMinCoverage || 0.35;
+
+        const uniqueQueryTokens = [...new Set(processedQuery.tokens)];
+
+        return results.filter(result => {
+            if (!result?.document) return false;
+            if (result.score < minScore) return false;
+
+            const docText = `${result.document.title} ${result.document.aliases.join(' ')} ${result.document.content} ${result.document.tags.join(' ')}`;
+            const docTokens = new Set(this.tokenize(this.normalizeText(docText)));
+
+            const matchedTokens = uniqueQueryTokens.filter(token => docTokens.has(token));
+            const coverage = matchedTokens.length / Math.max(uniqueQueryTokens.length, 1);
+
+            // Дополнительный сигнал: хотя бы одна биграмма/триграмма встречается дословно
+            const phraseHit =
+                processedQuery.bigramTokens.some(ngram => docText.toLowerCase().includes(ngram.join(' '))) ||
+                processedQuery.trigramTokens.some(ngram => docText.toLowerCase().includes(ngram.join(' ')));
+
+            const passesGuard = coverage >= minCoverage || phraseHit;
+
+            if (!passesGuard) {
+                result.searchMetadata = {
+                    ...(result.searchMetadata || {}),
+                    filteredBy: 'hallucination_guard',
+                    coverage
+                };
+            }
+
+            return passesGuard;
+        });
     }
 }
 
