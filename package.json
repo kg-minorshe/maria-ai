@@ -1,9 +1,7 @@
 {
   "scripts": {
     "start": "node src/app.js",
-    "dev": "node src/app.js",
-    "test": "python scripts/run_llm_eval.py --ci",
-    "benchmark": "node scripts/run_benchmark.js"
+    "dev": "node src/app.js"
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",
