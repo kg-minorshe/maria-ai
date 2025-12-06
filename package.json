@@ -1,7 +1,8 @@
 {
   "scripts": {
     "start": "node src/app.js",
-    "dev": "node src/app.js"
+    "dev": "node src/app.js",
+    "start:memory": "node --max-old-space-size=4096 src/app.js"
   },
   "dependencies": {
     "@tensorflow/tfjs": "^4.22.0",

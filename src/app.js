@@ -26,6 +26,10 @@ const {
 const { ReasoningEngine } = require("./modules/reasoning/ReasoningEngine");
 const {
   loadKnowledgeBase: loadKnowledgeBaseService,
+  reloadKnowledgeBase: reloadKnowledgeBaseService,
+  getKnowledgeBaseCache,
+  getKnowledgeBaseStatus,
+  resetKnowledgeBaseCache,
   createEmptyKnowledgeBase,
 } = require("./services/knowledgeBase");
 const { LocalEmbeddingRuntime } = require("./services/localEmbeddingRuntime");
@@ -135,20 +139,21 @@ function initializeSystem() {
 function loadKnowledgeBase() {
   try {
     const {
-      knowledgeBase: combinedKnowledgeBase,
       projectKnowledgeBase,
       generalKnowledgeBase,
       russianDataset,
     } = loadKnowledgeBaseService({ rootDir: ROOT_DIR });
 
-    knowledgeBase = combinedKnowledgeBase;
+    knowledgeBase = getKnowledgeBaseCache();
     global.knowledgeBase = knowledgeBase;
 
     console.log(
       `📚 База знаний загружена: ${knowledgeBase.length} статей (проект: ${projectKnowledgeBase.length}, общие темы: ${generalKnowledgeBase.length}, русский датасет: ${russianDataset.length})`
     );
+    console.log(`ℹ️  Статус кэша базы знаний: ${getKnowledgeBaseStatus()}`);
   } catch (error) {
     console.error("❌ Ошибка загрузки базы знаний:", error.message);
+    resetKnowledgeBaseCache();
     knowledgeBase = createEmptyKnowledgeBase();
   }
 }
@@ -685,7 +690,8 @@ app.get("/metrics", (req, res) => {
 if (process.env.NODE_ENV === "development") {
   app.post("/api/admin/knowledge-base/reload", (req, res) => {
     try {
-      loadKnowledgeBase();
+      reloadKnowledgeBaseService({ rootDir: ROOT_DIR });
+      knowledgeBase = getKnowledgeBaseCache();
       embeddingRuntime = new LocalEmbeddingRuntime({ knowledgeBase });
       searchEngine = new SemanticSearchEngine(knowledgeBase, {
         embeddingRuntime,
@@ -694,6 +700,7 @@ if (process.env.NODE_ENV === "development") {
       res.json({
         message: "База знаний перезагружена успешно",
         articlesCount: knowledgeBase.length,
+        status: getKnowledgeBaseStatus(),
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
