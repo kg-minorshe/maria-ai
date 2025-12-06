@@ -2,9 +2,10 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
-const tar = require('tar');
 
-const DEFAULT_URL = 'https://storage.yandexcloud.net/nlpcourse/data/sberquad.tar.gz';
+const DEFAULT_URL = 'https://huggingface.co/datasets/ai-forever/sberquad/resolve/main/sberquad.tar.gz?download=1';
+const FALLBACK_URL = 'https://huggingface.co/datasets/ai-forever/sberquad/resolve/main/sberquad.tar.gz';
+const tar = require('tar');
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -44,12 +45,28 @@ function ensureDir(dirPath) {
   }
 }
 
-function downloadFile(url, dest) {
+function downloadFile(url, dest, redirectCount = 0) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest);
 
     https
       .get(url, (response) => {
+        if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+          file.close(() => fs.unlink(dest, () => {}));
+          if (redirectCount >= 5) {
+            reject(new Error('Слишком много редиректов при скачивании файла.'));
+            return;
+          }
+
+          const nextUrl = response.headers.location.startsWith('http')
+            ? response.headers.location
+            : new URL(response.headers.location, url).toString();
+          downloadFile(nextUrl, dest, redirectCount + 1)
+            .then(resolve)
+            .catch(reject);
+          return;
+        }
+
         if (response.statusCode !== 200) {
           reject(new Error(`Не удалось скачать файл. Код ответа: ${response.statusCode}`));
           return;
@@ -78,7 +95,20 @@ async function main() {
 
   const archivePath = path.join(outDir, 'sberquad.tar.gz');
   console.log(`Скачиваю SberQuAD из ${url} ...`);
-  await downloadFile(url, archivePath);
+
+  try {
+    await downloadFile(url, archivePath);
+  } catch (primaryError) {
+    if (url !== FALLBACK_URL && url !== DEFAULT_URL) {
+      throw primaryError;
+    }
+
+    console.warn(
+      'Основной URL недоступен. Пытаюсь скачать с зеркала Hugging Face:',
+      FALLBACK_URL
+    );
+    await downloadFile(FALLBACK_URL, archivePath);
+  }
   console.log(`Архив сохранён в ${archivePath}`);
 
   if (extract) {

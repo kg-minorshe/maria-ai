@@ -9,7 +9,7 @@
   node scripts/download_sberquad.js --outDir data/downloads/sberquad
   ```
 
-  Скрипт тянет зеркалированный архив `https://storage.yandexcloud.net/nlpcourse/data/sberquad.tar.gz`, кладёт его в указанную папку и распаковывает рядом. Если хотите скачать с Hugging Face, задайте `--url https://huggingface.co/datasets/ai-forever/sberquad/resolve/main/sberquad.tar.gz`.
+  По умолчанию скрипт скачивает архив с Hugging Face (`https://huggingface.co/datasets/ai-forever/sberquad/resolve/main/sberquad.tar.gz?download=1`), автоматически следует HTTP‑редиректам и при неудаче пробует запасной URL `https://huggingface.co/datasets/ai-forever/sberquad/resolve/main/sberquad.tar.gz`. При желании вы можете передать свой источник через `--url <ссылка>`.
 
 - После скачивания возьмите файл `train-v1.1.json` или `dev-v1.1.json` и сконвертируйте его в JSONL формата базы знаний.
 
