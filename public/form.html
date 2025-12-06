@@ -1,0 +1,1335 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Мария Enhanced AI - Форма запроса</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding: 20px;
+        color: #333;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      .header {
+        text-align: center;
+        margin-bottom: 40px;
+        color: white;
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      .header h1 {
+        font-size: 3em;
+        margin-bottom: 10px;
+        background: linear-gradient(to right, #ff7e5f, #feb47b);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      .header p {
+        font-size: 1.2em;
+        opacity: 0.9;
+      }
+
+      .app-container {
+        display: grid;
+        grid-template-columns: 1fr 400px;
+        gap: 30px;
+        height: calc(100vh - 180px);
+      }
+
+      @media (max-width: 1024px) {
+        .app-container {
+          grid-template-columns: 1fr;
+          height: auto;
+        }
+      }
+
+      .chat-section {
+        background: white;
+        border-radius: 20px;
+        padding: 30px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .chat-header {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        margin-bottom: 30px;
+        padding-bottom: 15px;
+        border-bottom: 2px solid #f0f0f0;
+      }
+
+      .avatar {
+        width: 60px;
+        height: 60px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        color: white;
+        font-weight: bold;
+      }
+
+      .chat-header-info h2 {
+        font-size: 1.8em;
+        color: #333;
+        margin-bottom: 5px;
+      }
+
+      .chat-header-info .status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #4caf50;
+        font-weight: 500;
+      }
+
+      .status-dot {
+        width: 10px;
+        height: 10px;
+        background: #4caf50;
+        border-radius: 50%;
+        animation: pulse 2s infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+      }
+
+      .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+        background: #f8f9fa;
+        border-radius: 15px;
+        margin-bottom: 20px;
+        border: 1px solid #e9ecef;
+      }
+
+      .message {
+        margin-bottom: 20px;
+        max-width: 80%;
+        animation: fadeIn 0.3s ease;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .user-message {
+        margin-left: auto;
+      }
+
+      .bot-message {
+        margin-right: auto;
+      }
+
+      .message-content {
+        padding: 15px 20px;
+        border-radius: 20px;
+        line-height: 1.5;
+        position: relative;
+      }
+
+      .user-message .message-content {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+        border-top-right-radius: 5px;
+      }
+
+      .bot-message .message-content {
+        background: white;
+        color: #333;
+        border: 1px solid #e9ecef;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        border-top-left-radius: 5px;
+      }
+
+      .message-sender {
+        font-size: 0.85em;
+        font-weight: 600;
+        margin-bottom: 5px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .user-message .message-sender {
+        justify-content: flex-end;
+        color: #764ba2;
+      }
+
+      .bot-message .message-sender {
+        color: #667eea;
+      }
+
+      .message-time {
+        font-size: 0.75em;
+        opacity: 0.6;
+        margin-top: 5px;
+        text-align: right;
+      }
+
+      .sources {
+        margin-top: 10px;
+        padding: 10px;
+        background: #e3f2fd;
+        border-radius: 10px;
+        font-size: 0.9em;
+      }
+
+      .sources-title {
+        font-weight: 600;
+        color: #1976d2;
+        margin-bottom: 5px;
+      }
+
+      .source-item {
+        padding: 5px 10px;
+        margin: 3px 0;
+        background: white;
+        border-radius: 5px;
+        border-left: 3px solid #1976d2;
+      }
+
+      .chat-input {
+        display: flex;
+        gap: 10px;
+        position: relative;
+      }
+
+      .chat-input textarea {
+        flex: 1;
+        padding: 15px 50px 15px 20px;
+        border: 2px solid #e9ecef;
+        border-radius: 15px;
+        font-size: 16px;
+        resize: none;
+        min-height: 60px;
+        max-height: 120px;
+        font-family: inherit;
+        transition: all 0.3s ease;
+      }
+
+      .chat-input textarea:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      }
+
+      .send-button {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+        border: none;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.3s ease;
+      }
+
+      .send-button:hover {
+        transform: translateY(-50%) scale(1.1);
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+      }
+
+      .send-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: translateY(-50%);
+      }
+
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .card {
+        background: white;
+        border-radius: 20px;
+        padding: 25px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+      }
+
+      .card h3 {
+        color: #333;
+        margin-bottom: 20px;
+        font-size: 1.4em;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .card h3::before {
+        content: "";
+        width: 6px;
+        height: 20px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border-radius: 3px;
+      }
+
+      .system-info {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+      }
+
+      .system-info h3::before {
+        background: white;
+      }
+
+      .system-info .stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+        margin-bottom: 20px;
+      }
+
+      .stat-item {
+        text-align: center;
+        padding: 15px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        backdrop-filter: blur(10px);
+      }
+
+      .stat-value {
+        font-size: 1.8em;
+        font-weight: bold;
+        margin-bottom: 5px;
+      }
+
+      .stat-label {
+        font-size: 0.9em;
+        opacity: 0.9;
+      }
+
+      .quick-actions .buttons {
+        display: grid;
+        gap: 10px;
+      }
+
+      .action-btn {
+        padding: 12px 20px;
+        border: none;
+        border-radius: 10px;
+        background: #f0f2f5;
+        color: #333;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .action-btn:hover {
+        background: #e4e6e9;
+        transform: translateX(5px);
+      }
+
+      .action-btn i {
+        color: #667eea;
+      }
+
+      .escalation-btn {
+        background: linear-gradient(135deg, #ff7e5f, #feb47b);
+        color: white;
+      }
+
+      .escalation-btn:hover {
+        background: linear-gradient(135deg, #ff6b4a, #fea05e);
+      }
+
+      .context-info {
+        max-height: 200px;
+        overflow-y: auto;
+      }
+
+      .context-item {
+        padding: 8px 12px;
+        margin: 5px 0;
+        background: #f8f9fa;
+        border-radius: 8px;
+        border-left: 3px solid #667eea;
+        font-size: 0.9em;
+      }
+
+      .typing-indicator {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 15px 20px;
+        background: white;
+        border-radius: 20px;
+        border: 1px solid #e9ecef;
+        width: fit-content;
+        margin-bottom: 20px;
+      }
+
+      .typing-dot {
+        width: 8px;
+        height: 8px;
+        background: #667eea;
+        border-radius: 50%;
+        animation: typing 1.4s infinite;
+      }
+
+      .typing-dot:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+      .typing-dot:nth-child(3) {
+        animation-delay: 0.4s;
+      }
+
+      @keyframes typing {
+        0%,
+        60%,
+        100% {
+          transform: translateY(0);
+        }
+        30% {
+          transform: translateY(-10px);
+        }
+      }
+
+      .escalation-alert {
+        background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+        color: white;
+        padding: 15px;
+        border-radius: 15px;
+        margin-bottom: 20px;
+        animation: slideIn 0.5s ease;
+      }
+
+      @keyframes slideIn {
+        from {
+          transform: translateY(-20px);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+
+      .confidence-bar {
+        height: 6px;
+        background: #e9ecef;
+        border-radius: 3px;
+        margin-top: 10px;
+        overflow: hidden;
+      }
+
+      .confidence-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #4caf50, #8bc34a);
+        border-radius: 3px;
+        transition: width 0.5s ease;
+      }
+
+      .scroll-button {
+        position: fixed;
+        bottom: 30px;
+        right: 30px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+        border: none;
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        transition: all 0.3s ease;
+      }
+
+      .scroll-button:hover {
+        transform: scale(1.1);
+      }
+
+      .scroll-button.visible {
+        display: flex;
+      }
+
+      .form-footer {
+        text-align: center;
+        color: white;
+        margin-top: 30px;
+        opacity: 0.8;
+        font-size: 0.9em;
+      }
+    </style>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🤖 Мария Enhanced AI</h1>
+        <p>
+          Продвинутый ИИ-ассистент с когнитивными и эмоциональными возможностями
+        </p>
+      </div>
+
+      <div class="app-container">
+        <div class="chat-section">
+          <div class="chat-header">
+            <div class="avatar">M</div>
+            <div class="chat-header-info">
+              <h2>Мария Cognitive AI</h2>
+              <div class="status">
+                <div class="status-dot"></div>
+                <span>Online • Готова к диалогу</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="chat-messages" id="chatMessages">
+            <div class="message bot-message">
+              <div class="message-sender">
+                <i class="fas fa-robot"></i>
+                Мария Cognitive AI
+              </div>
+              <div class="message-content">
+                Здравствуйте! Я Мария — продвинутый ИИ-ассистент с эмоциональным
+                интеллектом и когнитивными способностями. Я могу:
+                <br /><br />
+                • Отвечать на сложные вопросы с рассуждениями<br />
+                • Понимать контекст разговора<br />
+                • Анализировать эмоциональное состояние<br />
+                • Работать с базой знаний<br />
+                • Предлагать эскалацию к оператору<br />
+                <br />
+                Чем могу помочь вам сегодня?
+              </div>
+              <div class="message-time" id="welcomeTime"></div>
+            </div>
+          </div>
+
+          <div
+            class="typing-indicator"
+            id="typingIndicator"
+            style="display: none"
+          >
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <span>Мария думает...</span>
+          </div>
+
+          <div class="chat-input">
+            <textarea
+              id="messageInput"
+              placeholder="Введите ваш запрос здесь... (Enter для отправки, Shift+Enter для новой строки)"
+              rows="3"
+            ></textarea>
+            <button class="send-button" id="sendButton">
+              <i class="fas fa-paper-plane"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="sidebar">
+          <div class="card system-info">
+            <h3><i class="fas fa-heartbeat"></i> Статус системы</h3>
+            <div class="stats">
+              <div class="stat-item">
+                <div class="stat-value" id="totalQueries">0</div>
+                <div class="stat-label">Всего запросов</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-value" id="successRate">100%</div>
+                <div class="stat-label">Успешность</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-value" id="activeSessions">1</div>
+                <div class="stat-label">Активных сессий</div>
+              </div>
+              <div class="stat-item">
+                <div class="stat-value" id="kbArticles">0</div>
+                <div class="stat-label">Статей в БЗ</div>
+              </div>
+            </div>
+            <div class="status">
+              <div class="status-dot"></div>
+              <span>Система работает стабильно</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3><i class="fas fa-bolt"></i> Быстрые действия</h3>
+            <div class="buttons">
+              <button
+                class="action-btn"
+                onclick="sendQuickQuestion('Что такое искусственный интеллект?')"
+              >
+                <i class="fas fa-brain"></i> Что такое ИИ?
+              </button>
+              <button
+                class="action-btn"
+                onclick="sendQuickQuestion('Объясни машинное обучение простыми словами')"
+              >
+                <i class="fas fa-robot"></i> Про машинное обучение
+              </button>
+              <button
+                class="action-btn"
+                onclick="sendQuickQuestion('Как работает твоя система?')"
+              >
+                <i class="fas fa-cogs"></i> Как ты работаешь?
+              </button>
+              <button
+                class="action-btn escalation-btn"
+                onclick="requestHumanOperator()"
+              >
+                <i class="fas fa-user-headset"></i> Связаться с оператором
+              </button>
+              <button class="action-btn" onclick="clearContext()">
+                <i class="fas fa-trash-alt"></i> Очистить контекст
+              </button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3><i class="fas fa-history"></i> Контекст сессии</h3>
+            <div class="context-info" id="contextInfo">
+              <div class="context-item">Тема: Первоначальное знакомство</div>
+              <div class="context-item">Состояние: Нейтральное</div>
+              <div class="context-item">Взаимодействий: 1</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-footer">
+        <p>
+          Мария Enhanced AI v2.0.0 | Cognitive & Emotional Intelligence System
+        </p>
+        <p>Время сервера: <span id="serverTime"></span></p>
+      </div>
+    </div>
+
+    <button
+      class="scroll-button"
+      id="scrollToBottom"
+      onclick="scrollToBottom()"
+    >
+      <i class="fas fa-arrow-down"></i>
+    </button>
+
+    <script>
+      // Элементы DOM
+      const messageInput = document.getElementById("messageInput");
+      const sendButton = document.getElementById("sendButton");
+      const chatMessages = document.getElementById("chatMessages");
+      const typingIndicator = document.getElementById("typingIndicator");
+      const scrollToBottomBtn = document.getElementById("scrollToBottom");
+      const contextInfo = document.getElementById("contextInfo");
+
+      // Статистические элементы
+      const totalQueriesEl = document.getElementById("totalQueries");
+      const successRateEl = document.getElementById("successRate");
+      const activeSessionsEl = document.getElementById("activeSessions");
+      const kbArticlesEl = document.getElementById("kbArticles");
+      const serverTimeEl = document.getElementById("serverTime");
+      const welcomeTimeEl = document.getElementById("welcomeTime");
+
+      // Переменные состояния
+      let sessionId = null;
+      let messageHistory = [];
+      let isProcessing = false;
+
+      // Инициализация
+      document.addEventListener("DOMContentLoaded", () => {
+        // Установить время приветственного сообщения
+        welcomeTimeEl.textContent = formatTime(new Date());
+
+        // Обновить время сервера
+        updateServerTime();
+        setInterval(updateServerTime, 60000);
+
+        // Загрузить системные метрики
+        loadSystemMetrics();
+        setInterval(loadSystemMetrics, 30000);
+
+        // Загрузить контекст сессии
+        loadSessionContext();
+
+        // Фокус на поле ввода
+        messageInput.focus();
+      });
+
+      // Форматирование времени
+      function formatTime(date) {
+        return date.toLocaleTimeString("ru-RU", {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+
+      // Обновление времени сервера
+      function updateServerTime() {
+        const now = new Date();
+        serverTimeEl.textContent = now.toLocaleString("ru-RU", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        });
+      }
+
+      // Загрузка системных метрик
+      async function loadSystemMetrics() {
+        try {
+          const response = await fetch("/metrics");
+          if (response.ok) {
+            const data = await response.json();
+
+            // Обновляем статистику
+            totalQueriesEl.textContent = data.performance.totalQueries || 0;
+            successRateEl.textContent = data.performance.successRate || "100%";
+            activeSessionsEl.textContent = data.sessions.active || 1;
+            kbArticlesEl.textContent = data.knowledgeBase.totalArticles || 0;
+          }
+        } catch (error) {
+          console.error("Ошибка загрузки метрик:", error);
+        }
+      }
+
+      // Загрузка контекста сессии
+      async function loadSessionContext() {
+        try {
+          const response = await fetch("/api/chat/context");
+          if (response.ok) {
+            const data = await response.json();
+            sessionId = data.sessionId;
+            updateContextInfo(data.context);
+          }
+        } catch (error) {
+          console.error("Ошибка загрузки контекста:", error);
+          // Создаем новую сессию при первом запросе
+          sessionId = `session_${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 12)}`;
+        }
+      }
+
+      // Обновление информации о контексте
+      function updateContextInfo(context) {
+        if (!contextInfo) return;
+
+        let html = "";
+        if (context.currentTopic) {
+          html += `<div class="context-item">Тема: ${context.currentTopic}</div>`;
+        }
+        if (context.emotionalState) {
+          html += `<div class="context-item">Состояние: ${context.emotionalState}</div>`;
+        }
+        if (context.totalInteractions) {
+          html += `<div class="context-item">Взаимодействий: ${context.totalInteractions}</div>`;
+        }
+        if (context.recentEntities && context.recentEntities.length > 0) {
+          html += `<div class="context-item">Сущности: ${context.recentEntities
+            .slice(0, 3)
+            .join(", ")}</div>`;
+        }
+
+        contextInfo.innerHTML =
+          html || '<div class="context-item">Контекст не загружен</div>';
+      }
+
+      // Отправка сообщения
+      async function sendMessage() {
+        const message = messageInput.value.trim();
+
+        if (!message || isProcessing) return;
+
+        // Добавляем сообщение пользователя в чат
+        addMessageToChat("user", message);
+        messageInput.value = "";
+
+        // Показываем индикатор набора
+        showTypingIndicator();
+
+        // Отключаем кнопку отправки
+        isProcessing = true;
+        sendButton.disabled = true;
+
+        try {
+          // Отправляем запрос на сервер
+          const response = await fetch("/api/chat/query", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ message }),
+          });
+
+          const data = await response.json();
+
+          // Обновляем статистику
+          await loadSystemMetrics();
+
+          // Обновляем контекст
+          await loadSessionContext();
+
+          // Обрабатываем ответ
+          processAIResponse(data);
+        } catch (error) {
+          console.error("Ошибка отправки сообщения:", error);
+          addMessageToChat(
+            "bot",
+            "Извините, произошла ошибка при обработке вашего запроса. " +
+              "Пожалуйста, попробуйте еще раз или обратитесь к системному администратору."
+          );
+        } finally {
+          // Скрываем индикатор набора и включаем кнопку
+          hideTypingIndicator();
+          isProcessing = false;
+          sendButton.disabled = false;
+          messageInput.focus();
+        }
+      }
+
+      // Обработка ответа ИИ
+      function processAIResponse(data) {
+        // Проверяем, требуется ли эскалация
+        if (data.escalated) {
+          showEscalationAlert(data);
+        }
+
+        // Обрабатываем markdown в сообщении
+        if (data.message) {
+          data.formattedMessage = parseMarkdown(data.message);
+        }
+
+        // Добавляем ответ в чат
+        addMessageToChat("bot", data.formattedMessage || data.message, data);
+
+        // Прокручиваем вниз
+        scrollToBottom();
+      }
+
+      // Функция для преобразования Markdown в HTML
+      function parseMarkdown(text) {
+        if (!text) return "";
+
+        let html = text;
+
+        // Заголовки
+        html = html.replace(/^### (.*$)/gim, "<h3>$1</h3>");
+        html = html.replace(/^## (.*$)/gim, "<h2>$1</h2>");
+        html = html.replace(/^# (.*$)/gim, "<h1>$1</h1>");
+
+        // Жирный текст
+        html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+        html = html.replace(/__(.*?)__/g, "<strong>$1</strong>");
+
+        // Курсив
+        html = html.replace(/\*(.*?)\*/g, "<em>$1</em>");
+        html = html.replace(/_(.*?)_/g, "<em>$1</em>");
+
+        // Зачеркнутый текст
+        html = html.replace(/~~(.*?)~~/g, "<del>$1</del>");
+
+        // Код (inline)
+        html = html.replace(/`(.*?)`/g, "<code>$1</code>");
+
+        // Блоки кода
+        html = html.replace(/```([\s\S]*?)```/g, function (match, code) {
+          return `<pre><code>${escapeHtml(code.trim())}</code></pre>`;
+        });
+
+        // Списки
+        html = html.replace(/^\s*-\s+(.*$)/gim, "<li>$1</li>");
+        html = html.replace(/^\s*\*\s+(.*$)/gim, "<li>$1</li>");
+        html = html.replace(/^\s*\d+\.\s+(.*$)/gim, "<li>$1</li>");
+
+        // Обрамляем списки в ul/ol
+        html = html.replace(/(<li>.*<\/li>)/g, "<ul>$1</ul>");
+
+        // Цитаты
+        html = html.replace(/^\> (.*$)/gim, "<blockquote>$1</blockquote>");
+
+        // Горизонтальные линии
+        html = html.replace(/^---$/gim, "<hr>");
+
+        // Ссылки
+        html = html.replace(
+          /\[([^\]]+)\]\(([^)]+)\)/g,
+          '<a href="$2" target="_blank">$1</a>'
+        );
+
+        // Изображения
+        html = html.replace(
+          /!\[([^\]]+)\]\(([^)]+)\)/g,
+          '<img src="$2" alt="$1" style="max-width: 100%; border-radius: 8px; margin: 10px 0;">'
+        );
+
+        // Разделители (замена переносов строк на <br>)
+        html = html.replace(/\n/g, "<br>");
+
+        // Таблицы (базовая поддержка)
+        html = html.replace(/\|(.+)\|/g, function (match, row) {
+          const cells = row
+            .split("|")
+            .map((cell) => `<td>${cell.trim()}</td>`)
+            .join("");
+          return `<tr>${cells}</tr>`;
+        });
+
+        // Обернуть таблицу
+        html = html.replace(/<tr>[\s\S]*?<\/tr>/g, function (match) {
+          if (match.includes("<td>")) {
+            return `<table class="markdown-table">${match}</table>`;
+          }
+          return match;
+        });
+
+        return html;
+      }
+
+      // Экранирование HTML
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      // Также обновите функцию addMessageToChat для поддержки markdown:
+      function addMessageToChat(sender, content, data = null) {
+        const messageDiv = document.createElement("div");
+        messageDiv.className = `message ${sender}-message`;
+
+        const senderName =
+          sender === "user"
+            ? `<i class="fas fa-user"></i> Вы`
+            : `<i class="fas fa-robot"></i> ${
+                data?.assistant || "Мария Cognitive AI"
+              }`;
+
+        let messageContent = `<div class="message-content markdown-content">${content}</div>`;
+
+        // Добавляем источники, если есть
+        if (data?.sources && data.sources.length > 0) {
+          messageContent += `
+            <div class="sources">
+                <div class="sources-title"><i class="fas fa-book"></i> Источники:</div>
+                ${data.sources
+                  .map(
+                    (source) =>
+                      `<div class="source-item">${source.title || source}</div>`
+                  )
+                  .join("")}
+            </div>
+        `;
+        }
+
+        // Добавляем confidence bar, если есть
+        if (data?.confidence) {
+          const confidencePercent = Math.round(data.confidence * 100);
+          messageContent += `
+            <div class="confidence-bar">
+                <div class="confidence-fill" style="width: ${confidencePercent}%"></div>
+            </div>
+            <div style="font-size: 0.8em; margin-top: 5px; color: #666;">
+                Уверенность ответа: ${confidencePercent}%
+            </div>
+        `;
+        }
+
+        messageDiv.innerHTML = `
+        <div class="message-sender">${senderName}</div>
+        ${messageContent}
+        <div class="message-time">${formatTime(new Date())}</div>
+    `;
+
+        chatMessages.appendChild(messageDiv);
+
+        // Применяем стили для markdown-контента
+        applyMarkdownStyles();
+
+        // Прокручиваем вниз
+        scrollToBottom();
+      }
+
+      // Функция для применения стилей markdown
+      function applyMarkdownStyles() {
+        const markdownElements = document.querySelectorAll(".markdown-content");
+
+        markdownElements.forEach((element) => {
+          // Стили для заголовков
+          element.querySelectorAll("h1, h2, h3").forEach((heading) => {
+            heading.style.margin = "15px 0 10px 0";
+            heading.style.fontWeight = "600";
+            heading.style.color = "#333";
+          });
+
+          element.querySelectorAll("h1").forEach((h1) => {
+            h1.style.fontSize = "1.5em";
+            h1.style.borderBottom = "2px solid #667eea";
+            h1.style.paddingBottom = "5px";
+          });
+
+          element.querySelectorAll("h2").forEach((h2) => {
+            h2.style.fontSize = "1.3em";
+            h2.style.borderBottom = "1px solid #e0e0e0";
+            h2.style.paddingBottom = "3px";
+          });
+
+          element.querySelectorAll("h3").forEach((h3) => {
+            h3.style.fontSize = "1.1em";
+          });
+
+          // Стили для кода
+          element.querySelectorAll("code").forEach((code) => {
+            if (code.parentElement.tagName !== "PRE") {
+              code.style.backgroundColor = "#f0f0f0";
+              code.style.padding = "2px 6px";
+              code.style.borderRadius = "4px";
+              code.style.fontFamily = "monospace";
+              code.style.fontSize = "0.9em";
+            }
+          });
+
+          element.querySelectorAll("pre").forEach((pre) => {
+            pre.style.backgroundColor = "#2d2d2d";
+            pre.style.color = "#f8f8f2";
+            pre.style.padding = "15px";
+            pre.style.borderRadius = "8px";
+            pre.style.overflowX = "auto";
+            pre.style.margin = "15px 0";
+            pre.style.fontFamily = "'Courier New', monospace";
+            pre.style.fontSize = "0.9em";
+            pre.style.lineHeight = "1.5";
+          });
+
+          // Стили для списков
+          element.querySelectorAll("ul, ol").forEach((list) => {
+            list.style.margin = "10px 0 10px 20px";
+            list.style.paddingLeft = "20px";
+          });
+
+          element.querySelectorAll("li").forEach((li) => {
+            li.style.margin = "5px 0";
+            li.style.lineHeight = "1.5";
+          });
+
+          // Стили для блоков цитат
+          element.querySelectorAll("blockquote").forEach((blockquote) => {
+            blockquote.style.borderLeft = "4px solid #667eea";
+            blockquote.style.margin = "15px 0";
+            blockquote.style.padding = "10px 20px";
+            blockquote.style.backgroundColor = "#f8f9fa";
+            blockquote.style.fontStyle = "italic";
+            blockquote.style.color = "#555";
+          });
+
+          // Стили для таблиц
+          element.querySelectorAll(".markdown-table").forEach((table) => {
+            table.style.width = "100%";
+            table.style.borderCollapse = "collapse";
+            table.style.margin = "15px 0";
+
+            table.querySelectorAll("td").forEach((td) => {
+              td.style.border = "1px solid #ddd";
+              td.style.padding = "8px";
+              td.style.textAlign = "left";
+            });
+
+            table.querySelectorAll("tr:nth-child(even)").forEach((tr) => {
+              tr.style.backgroundColor = "#f9f9f9";
+            });
+
+            table.querySelectorAll("tr:first-child").forEach((tr) => {
+              tr.style.backgroundColor = "#667eea";
+              tr.style.color = "white";
+              tr.querySelectorAll("td").forEach((td) => {
+                td.style.fontWeight = "bold";
+              });
+            });
+          });
+
+          // Стили для ссылок
+          element.querySelectorAll("a").forEach((link) => {
+            link.style.color = "#667eea";
+            link.style.textDecoration = "none";
+            link.style.fontWeight = "500";
+            link.addEventListener("mouseenter", () => {
+              link.style.textDecoration = "underline";
+            });
+            link.addEventListener("mouseleave", () => {
+              link.style.textDecoration = "none";
+            });
+          });
+
+          // Стили для горизонтальной линии
+          element.querySelectorAll("hr").forEach((hr) => {
+            hr.style.border = "none";
+            hr.style.height = "1px";
+            hr.style.backgroundColor = "#e0e0e0";
+            hr.style.margin = "20px 0";
+          });
+        });
+      }
+
+      // Также добавьте стили CSS для markdown:
+      const style = document.createElement("style");
+      style.textContent = `
+    .markdown-content {
+        line-height: 1.6;
+    }
+    
+    .markdown-content strong {
+        font-weight: 600;
+        color: #333;
+    }
+    
+    .markdown-content em {
+        font-style: italic;
+    }
+    
+    .markdown-content del {
+        text-decoration: line-through;
+        color: #999;
+    }
+    
+    .markdown-content ul, .markdown-content ol {
+        margin: 10px 0 10px 20px;
+        padding-left: 20px;
+    }
+    
+    .markdown-content li {
+        margin: 5px 0;
+    }
+    
+    .markdown-content img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 8px;
+        margin: 10px 0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+`;
+      document.head.appendChild(style);
+
+      // Показать алерт эскалации
+      function showEscalationAlert(data) {
+        const alertDiv = document.createElement("div");
+        alertDiv.className = "escalation-alert";
+        alertDiv.innerHTML = `
+                <strong><i class="fas fa-user-headset"></i> Запрос передан оператору!</strong><br>
+                ${data.message}<br>
+                <small>ID запроса: ${data.escalationId}</small>
+            `;
+
+        chatMessages.insertBefore(alertDiv, typingIndicator);
+      }
+
+      // Добавить сообщение в чат
+      function addMessageToChat(sender, content, data = null) {
+        const messageDiv = document.createElement("div");
+        messageDiv.className = `message ${sender}-message`;
+
+        const senderName =
+          sender === "user"
+            ? `<i class="fas fa-user"></i> Вы`
+            : `<i class="fas fa-robot"></i> ${
+                data?.assistant || "Мария Cognitive AI"
+              }`;
+
+        let messageContent = `<div class="message-content">${content}</div>`;
+
+        // Добавляем источники, если есть
+        if (data?.sources && data.sources.length > 0) {
+          messageContent += `
+                    <div class="sources">
+                        <div class="sources-title"><i class="fas fa-book"></i> Источники:</div>
+                        ${data.sources
+                          .map(
+                            (source) =>
+                              `<div class="source-item">${
+                                source.title || source
+                              }</div>`
+                          )
+                          .join("")}
+                    </div>
+                `;
+        }
+
+        // Добавляем confidence bar, если есть
+        if (data?.confidence) {
+          const confidencePercent = Math.round(data.confidence * 100);
+          messageContent += `
+                    <div class="confidence-bar">
+                        <div class="confidence-fill" style="width: ${confidencePercent}%"></div>
+                    </div>
+                    <div style="font-size: 0.8em; margin-top: 5px; color: #666;">
+                        Уверенность ответа: ${confidencePercent}%
+                    </div>
+                `;
+        }
+
+        messageDiv.innerHTML = `
+                <div class="message-sender">${senderName}</div>
+                ${messageContent}
+                <div class="message-time">${formatTime(new Date())}</div>
+            `;
+
+        chatMessages.appendChild(messageDiv);
+
+        // Прокручиваем вниз
+        scrollToBottom();
+      }
+
+      // Показать индикатор набора
+      function showTypingIndicator() {
+        typingIndicator.style.display = "flex";
+        scrollToBottom();
+      }
+
+      // Скрыть индикатор набора
+      function hideTypingIndicator() {
+        typingIndicator.style.display = "none";
+      }
+
+      // Прокрутка вниз
+      function scrollToBottom() {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        updateScrollButton();
+      }
+
+      // Обновление кнопки прокрутки
+      function updateScrollButton() {
+        const isAtBottom =
+          chatMessages.scrollHeight -
+            chatMessages.scrollTop -
+            chatMessages.clientHeight <
+          100;
+
+        scrollToBottomBtn.classList.toggle("visible", !isAtBottom);
+      }
+
+      // Быстрый вопрос
+      function sendQuickQuestion(question) {
+        messageInput.value = question;
+        sendMessage();
+      }
+
+      // Запрос оператора
+      function requestHumanOperator() {
+        const message = "Мне нужен живой оператор или менеджер";
+        messageInput.value = message;
+        sendMessage();
+      }
+
+      // Очистка контекста
+      async function clearContext() {
+        if (
+          !confirm(
+            "Вы уверены, что хотите очистить контекст текущей сессии? История диалога будет удалена."
+          )
+        ) {
+          return;
+        }
+
+        try {
+          const response = await fetch("/api/chat/context", {
+            method: "DELETE",
+          });
+
+          if (response.ok) {
+            // Оставляем только приветственное сообщение
+            const messages = chatMessages.querySelectorAll(".message");
+            for (let i = 1; i < messages.length; i++) {
+              messages[i].remove();
+            }
+
+            // Обновляем контекст
+            await loadSessionContext();
+
+            // Показываем сообщение об успехе
+            addMessageToChat(
+              "bot",
+              "Контекст сессии успешно очищен. Я забыла всю предыдущую историю нашего разговора. " +
+                "Чем могу помочь вам теперь?"
+            );
+          }
+        } catch (error) {
+          console.error("Ошибка очистки контекста:", error);
+          alert("Ошибка при очистке контекста");
+        }
+      }
+
+      // Обработчики событий
+      sendButton.addEventListener("click", sendMessage);
+
+      messageInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+
+        // Автоматическое увеличение высоты textarea
+        setTimeout(() => {
+          messageInput.style.height = "auto";
+          messageInput.style.height =
+            Math.min(messageInput.scrollHeight, 120) + "px";
+        }, 0);
+      });
+
+      chatMessages.addEventListener("scroll", updateScrollButton);
+
+      scrollToBottomBtn.addEventListener("click", scrollToBottom);
+
+      // Инициализация кнопки прокрутки
+      updateScrollButton();
+    </script>
+  </body>
+</html>
