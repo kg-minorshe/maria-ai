@@ -204,13 +204,124 @@ function loadKnowledgeBaseFile(filePath, sampleCreator, label) {
   }
 
   const data = fs.readFileSync(filePath, "utf8");
-  const parsed = JSON.parse(data);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(data);
+  } catch (error) {
+    // Для очень больших или повреждённых файлов JSON.parse может падать
+    // с RangeError: Maximum call stack size exceeded. В таком случае
+    // пробуем безопасный потоковый разбор.
+    if (error instanceof RangeError) {
+      console.warn(
+        `⚠️  ${label}: стандартный парсинг не удался (${error.message}). ` +
+          "Перехожу на итеративный разбор."
+      );
+
+      parsed = safeStreamingParse(data, label);
+    } else {
+      throw error;
+    }
+  }
 
   if (!Array.isArray(parsed)) {
     throw new Error(`${label} должна быть массивом статей`);
   }
 
   return parsed;
+}
+
+function safeStreamingParse(rawData, label) {
+  const trimmed = rawData.trim();
+
+  // Большинство наших файлов — это JSON-массив объектов.
+  // Если файл не начинается с "[", попробуем распознать его как NDJSON.
+  if (!trimmed.startsWith("[")) {
+    return parseNdjson(trimmed, label);
+  }
+
+  const result = [];
+
+  let buffer = "";
+  let depth = 0; // глубина вложенности текущего элемента (без внешнего массива)
+  let inString = false;
+  let escaped = false;
+  let arrayStarted = false;
+
+  const pushBuffer = () => {
+    const chunk = buffer.trim();
+    buffer = "";
+
+    if (!chunk) return;
+
+    try {
+      result.push(JSON.parse(chunk));
+    } catch (error) {
+      console.warn(
+        `⚠️  Фрагмент ${result.length + 1} в ${label} пропущен: ${error.message}`
+      );
+    }
+  };
+
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const char = trimmed[i];
+
+    // ждём открывающую скобку массива
+    if (!arrayStarted) {
+      if (char === "[") {
+        arrayStarted = true;
+      }
+      continue;
+    }
+
+    // закрывающая скобка массива — завершаем разбор
+    if (!inString && depth === 0 && char === "]") {
+      pushBuffer();
+      break;
+    }
+
+    buffer += char;
+
+    if (inString) {
+      escaped = char === "\\" && !escaped;
+      if (char === "\"" && !escaped) {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"" && !escaped) {
+      inString = true;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "{" || char === "[") depth += 1;
+    if (char === "}" || char === "]") depth -= 1;
+
+    if (char === "," && depth === 0) {
+      pushBuffer();
+    }
+  }
+
+  return result;
+}
+
+function parseNdjson(rawData, label) {
+  return rawData
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .flatMap((line, idx) => {
+      try {
+        return JSON.parse(line);
+      } catch (lineError) {
+        console.warn(
+          `⚠️  Строка ${idx + 1} в ${label} пропущена: ${lineError.message}`
+        );
+        return [];
+      }
+    });
 }
 
 function createSampleProjectKnowledgeBase(kbPath) {
