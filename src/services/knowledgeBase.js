@@ -197,21 +197,33 @@ async function loadKnowledgeBaseFromStorage({
   };
 }
 
+function readFileSample(filePath, bytes = 4096) {
+  const buffer = Buffer.alloc(bytes);
+  const fd = fs.openSync(filePath, "r");
+
+  try {
+    const bytesRead = fs.readSync(fd, buffer, 0, bytes, 0);
+    return buffer.toString("utf8", 0, bytesRead);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 async function loadKnowledgeBaseFile(filePath, sampleCreator, label) {
   if (!fs.existsSync(filePath)) {
     console.warn(`⚠️  ${label} не найдена. Создаю пример...`);
     sampleCreator(filePath);
   }
 
-  const data = fs.readFileSync(filePath, "utf8");
   const fileSizeBytes = fs.statSync(filePath).size;
-  const trimmed = data.trim();
+  const fileExt = path.extname(filePath).toLowerCase();
+  const sampleChunk = readFileSample(filePath, Math.min(fileSizeBytes, 4096));
+  const trimmedSample = sampleChunk.trimStart();
 
-  // Если это NDJSON или файл слишком большой, сразу идём в потоковый разбор,
-  // чтобы не рисковать переполнением стека в JSON.parse.
+  // Если это NDJSON (по расширению или по сигнатуре) — сразу идём в потоковый разбор
+  // и не тащим весь файл в память, чтобы избежать переполнения стека в JSON.parse.
   const looksLikeNdjson =
-    path.extname(filePath).toLowerCase() === ".jsonl" ||
-    (trimmed && trimmed[0] !== "[");
+    fileExt === ".jsonl" || (trimmedSample && trimmedSample[0] !== "[");
 
   if (looksLikeNdjson) {
     return parseNdjsonStream(filePath, label);
@@ -223,6 +235,7 @@ async function loadKnowledgeBaseFile(filePath, sampleCreator, label) {
     return parseJsonArrayStream(filePath, label);
   }
 
+  const data = fs.readFileSync(filePath, "utf8");
   let parsed;
   try {
     parsed = JSON.parse(data);
