@@ -204,7 +204,38 @@ function loadKnowledgeBaseFile(filePath, sampleCreator, label) {
   }
 
   const data = fs.readFileSync(filePath, "utf8");
-  const parsed = JSON.parse(data);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(data);
+  } catch (error) {
+    // Для очень больших или повреждённых файлов JSON.parse может падать
+    // с RangeError: Maximum call stack size exceeded. В таком случае
+    // пробуем потоковый разбор построчно, чтобы не обрушить процесс.
+    if (error instanceof RangeError) {
+      console.warn(
+        `⚠️  ${label}: стандартный парсинг не удался (${error.message}). ` +
+          "Перехожу на безопасный построчный разбор."
+      );
+
+      parsed = data
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .flatMap((line, idx) => {
+          try {
+            return JSON.parse(line);
+          } catch (lineError) {
+            console.warn(
+              `⚠️  Строка ${idx + 1} в ${label} пропущена: ${lineError.message}`
+            );
+            return [];
+          }
+        });
+    } else {
+      throw error;
+    }
+  }
 
   if (!Array.isArray(parsed)) {
     throw new Error(`${label} должна быть массивом статей`);
