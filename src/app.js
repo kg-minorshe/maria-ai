@@ -42,6 +42,7 @@ const { performSystemHealthCheck } = require("./services/systemHealth");
 const { normalizeText } = require("./utils/text");
 const { logStep, logError } = require("./utils/logger");
 const { warmupHighPerformancePool } = require("./services/highPerformanceProcessing");
+const { WebSearchService } = require("./services/webSearchService");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -74,6 +75,7 @@ let initializationState = {
   completedAt: null,
   error: null,
 };
+let webSearchService;
 
 async function createEmbeddingRuntime() {
   const provider = (process.env.EMBEDDING_RUNTIME || "local").toLowerCase();
@@ -173,6 +175,12 @@ async function initializeSystem() {
     cognitiveModeling = new CognitiveUserModeling();
     emotionalIntelligence = new EmotionalIntelligence();
     reasoningEngine = new ReasoningEngine();
+    webSearchService = new WebSearchService({
+      baseUrl: process.env.WEB_SEARCH_SERVICE_URL,
+      apiKey: process.env.WEB_SEARCH_SERVICE_KEY,
+      timeoutMs: Number(process.env.WEB_SEARCH_SERVICE_TIMEOUT_MS) || 8000,
+      defaultLimit: Number(process.env.WEB_SEARCH_DEFAULT_LIMIT) || 5,
+    });
 
     console.log("✅ Все компоненты системы инициализированы успешно");
 
@@ -616,7 +624,27 @@ app.post("/api/chat/query", async (req, res) => {
       skippedForSpeed: !shouldRunSemanticSearch,
     });
 
-    const normalizedSearchResults = searchResultsList;
+    let webSearchResults = [];
+    const shouldFallbackToWebSearch =
+      searchResultsList.length === 0 && webSearchService?.isEnabled();
+
+    if (shouldFallbackToWebSearch) {
+      try {
+        const webSearchStart = Date.now();
+        webSearchResults = await webSearchService.search(resolvedMessage, {
+          limit: Number(process.env.WEB_SEARCH_DEFAULT_LIMIT) || 5,
+        });
+        logStep("search:web:completed", {
+          durationMs: Date.now() - webSearchStart,
+          results: webSearchResults.length,
+        });
+      } catch (error) {
+        logError("webSearch", "Веб-поиск завершился ошибкой", error);
+      }
+    }
+
+    const normalizedSearchResults =
+      searchResultsList.length > 0 ? searchResultsList : webSearchResults;
 
     // 9. Генерация ответа с учётом когнитивной модели и защитой от ошибок
     let response;
