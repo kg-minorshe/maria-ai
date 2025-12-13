@@ -1,6 +1,5 @@
 const fs = require("fs");
 const path = require("path");
-const readline = require("readline");
 
 const DEFAULT_DATASET_PATH = path.join(
   path.resolve(__dirname, "../.."),
@@ -86,13 +85,13 @@ function ensureDatasetExists(datasetPath = DEFAULT_DATASET_PATH) {
 }
 
 async function readJsonl(datasetPath, { limit } = {}) {
-  const fileStream = fs.createReadStream(datasetPath, { encoding: "utf8" });
-  const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+  const content = fs.readFileSync(datasetPath, { encoding: "utf8" });
+  const lines = content.split(/\r?\n/);
 
   const result = [];
   let lineNumber = 0;
 
-  for await (const line of rl) {
+  for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
