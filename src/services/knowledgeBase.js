@@ -3,57 +3,7 @@ const path = require("path");
 const {
   loadRussianDatasets,
 } = require("./russianDatasetLoader");
-const {
-  saveKnowledgeBaseEntries,
-  loadKnowledgeBaseFromDb,
-  saveKnowledgeBaseEntriesToMysql,
-  loadKnowledgeBaseFromMysql,
-  DEFAULT_MYSQL_CONFIG,
-} = require("./knowledgeBaseStorage");
 const { SemanticEmbeddingRuntime } = require("./semanticEmbeddingRuntime");
-
-function parseGlobalLimit(value) {
-  if (value === undefined || value === null) {
-    return null;
-  }
-
-  const sanitized = String(value).trim();
-  if (!sanitized) {
-    return null;
-  }
-
-  const numeric = Number(sanitized.replace(/[_\s,]+/g, ""));
-  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : null;
-}
-
-function resolveStorageMode() {
-  const mode = (process.env.KB_STORAGE || process.env.KB_STORAGE_MODE || process.env.KB_CACHE_MODE || "")
-    .toString()
-    .trim()
-    .toLowerCase();
-
-  if (mode === "sqlite") {
-    return "sqlite";
-  }
-
-  // По умолчанию переносим хранение в MySQL, даже если переменные окружения не заданы
-  return "mysql";
-}
-
-function resolveSqlitePath() {
-  return process.env.KB_SQLITE_PATH || process.env.KB_DB_PATH || null;
-}
-
-function resolveMysqlConfig() {
-  const connectionLimit = Number(process.env.KB_MYSQL_POOL);
-
-  return {
-    ...DEFAULT_MYSQL_CONFIG,
-    ...(Number.isFinite(connectionLimit) && connectionLimit > 0
-      ? { connectionLimit }
-      : {}),
-  };
-}
 
 function rebuildRussianDatasetBuckets(entries = []) {
   return entries.reduce((acc, entry) => {
@@ -312,9 +262,6 @@ async function loadKnowledgeBaseFromStorage({
   generalPath,
   rootDir = path.resolve(__dirname, "../.."),
 } = {}) {
-  const storageMode = resolveStorageMode();
-  const mysqlConfig = resolveMysqlConfig();
-  const sqlitePath = resolveSqlitePath();
   const globalLimit = null;
 
   const paths = resolveKnowledgePaths(rootDir);
@@ -343,49 +290,6 @@ async function loadKnowledgeBaseFromStorage({
     : russianSingleEnv
     ? [russianSingleEnv]
     : [paths.russianDefault];
-
-  if (storageMode === "mysql" || storageMode === "sqlite") {
-    try {
-      const dbEntries = await loadKnowledgeBaseFromDatabase(storageMode, {
-        dbPath: sqlitePath || undefined,
-        mysqlConfig,
-      });
-
-      if (dbEntries?.length) {
-        console.log(
-          `📦 Загружено ${dbEntries.length} записей из ${storageMode.toUpperCase()} без чтения JSONL`
-        );
-
-        const limitedBuckets = applyGlobalLimit(
-          splitKnowledgeBaseBySource(dbEntries),
-          globalLimit
-        );
-
-        const knowledgeBase = validateAndEnrichKnowledgeBase(
-          limitedBuckets.combined,
-          { withProgress: true }
-        );
-
-        await enrichWithGptEmbeddings(knowledgeBase);
-
-        return {
-          knowledgeBase,
-          projectKnowledgeBase: limitedBuckets.projectKnowledgeBase,
-          generalKnowledgeBase: limitedBuckets.generalKnowledgeBase,
-          russianDataset: limitedBuckets.russianDataset,
-          russianDatasets: limitedBuckets.russianDatasets,
-        };
-      }
-
-      console.log(
-        `ℹ️ ${storageMode.toUpperCase()} база знаний пуста, читаю JSON/JSONL файлы...`
-      );
-    } catch (error) {
-      console.warn(
-        `⚠️ Не удалось загрузить базу знаний из ${storageMode.toUpperCase()}: ${error.message}`
-      );
-    }
-  }
 
   const projectStart = Date.now();
   const projectKnowledgeBase = appendSource(
@@ -458,22 +362,7 @@ async function loadKnowledgeBaseFromStorage({
     { withProgress: true }
   );
 
-  const knowledgeBaseWithEmbeddings = await enrichWithGptEmbeddings(
-    knowledgeBase
-  );
-
-  if (storageMode === "mysql" || storageMode === "sqlite") {
-    try {
-      await persistKnowledgeBaseToDatabase(storageMode, knowledgeBaseWithEmbeddings, {
-        dbPath: sqlitePath || undefined,
-        mysqlConfig,
-      });
-    } catch (error) {
-      console.warn(
-        `⚠️ Не удалось сохранить базу знаний в ${storageMode.toUpperCase()}: ${error.message}`
-      );
-    }
-  }
+  const knowledgeBaseWithEmbeddings = await enrichWithGptEmbeddings(knowledgeBase);
 
   return {
     knowledgeBase: knowledgeBaseWithEmbeddings,
@@ -482,38 +371,6 @@ async function loadKnowledgeBaseFromStorage({
     russianDataset: limitedBuckets.russianDataset,
     russianDatasets: limitedBuckets.russianDatasets,
   };
-}
-
-async function loadKnowledgeBaseFromDatabase(
-  storageMode,
-  { dbPath, mysqlConfig } = {}
-) {
-  if (storageMode === "mysql") {
-    return loadKnowledgeBaseFromMysql({ mysqlConfig });
-  }
-
-  if (storageMode === "sqlite") {
-    return loadKnowledgeBaseFromDb({ dbPath });
-  }
-
-  return [];
-}
-
-async function persistKnowledgeBaseToDatabase(
-  storageMode,
-  entries,
-  { dbPath, mysqlConfig } = {}
-) {
-  if (!entries?.length) return;
-
-  if (storageMode === "mysql") {
-    await saveKnowledgeBaseEntriesToMysql(entries, { mysqlConfig });
-    return;
-  }
-
-  if (storageMode === "sqlite") {
-    await saveKnowledgeBaseEntries(entries, { dbPath });
-  }
 }
 
 function readFileSample(filePath, bytes = 4096) {
