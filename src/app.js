@@ -66,6 +66,13 @@ let emotionalIntelligence;
 let reasoningEngine;
 let embeddingRuntime;
 let externalSemanticClient;
+let initializationPromise = null;
+let initializationState = {
+  status: "idle",
+  startedAt: null,
+  completedAt: null,
+  error: null,
+};
 
 async function createEmbeddingRuntime() {
   const provider = (process.env.EMBEDDING_RUNTIME || "local").toLowerCase();
@@ -129,6 +136,16 @@ app.get("/", (req, res) => {
 });
 // Инициализация системы
 async function initializeSystem() {
+  if (initializationState.status === "ready") {
+    return;
+  }
+
+  initializationState = {
+    status: "initializing",
+    startedAt: Date.now(),
+    completedAt: null,
+    error: null,
+  };
   console.log("🚀 Инициализация расширенной системы ИИ...");
 
   try {
@@ -156,6 +173,12 @@ async function initializeSystem() {
 
     console.log("✅ Все компоненты системы инициализированы успешно");
 
+    initializationState = {
+      ...initializationState,
+      status: "ready",
+      completedAt: Date.now(),
+    };
+
     // Проверяем готовность системы
     performSystemHealthCheck({
       knowledgeBase,
@@ -167,8 +190,29 @@ async function initializeSystem() {
     });
   } catch (error) {
     console.error("❌ Критическая ошибка инициализации:", error);
+    initializationState = {
+      ...initializationState,
+      status: "failed",
+      completedAt: Date.now(),
+      error: error.message,
+    };
     process.exit(1);
   }
+}
+
+async function ensureSystemReady() {
+  if (initializationState.status === "ready") {
+    return;
+  }
+
+  if (!initializationPromise) {
+    console.log(
+      "⏳ Ленивый запуск: подготавливаем ядро ИИ при первом запросе пользователя"
+    );
+    initializationPromise = initializeSystem();
+  }
+
+  return initializationPromise;
 }
 
 async function loadKnowledgeBase() {
@@ -197,6 +241,8 @@ console.log("✅ Система прошла проверку готовност
 
 // Расширенная система эскалации с более гибким распознаванием
 app.post("/api/chat/query", async (req, res) => {
+  await ensureSystemReady();
+
   const processingStart = Date.now();
   logStep("request:received", { path: req.path, method: req.method });
   try {
@@ -993,8 +1039,12 @@ app.use((error, req, res, next) => {
 // Функция запуска сервера
 async function startServer() {
   try {
-    // Инициализируем все системы
-    await initializeSystem();
+    // Ленивую инициализацию проводим при первом пользовательском запросе,
+    // чтобы сервер стартовал так же быстро, как ChatGPT или Claude. При желании
+    // можно включить прежний eager-режим через переменную окружения.
+    if (process.env.EAGER_INIT === "true") {
+      await ensureSystemReady();
+    }
 
     // Запускаем веб-сервер
     const server = app.listen(PORT, () => {

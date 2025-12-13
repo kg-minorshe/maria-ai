@@ -11,6 +11,96 @@ const {
   countKnowledgeBaseEntries,
 } = require("./knowledgeBaseStorage");
 
+function parseGlobalLimit(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const sanitized = String(value).trim();
+  if (!sanitized) {
+    return null;
+  }
+
+  const numeric = Number(sanitized.replace(/[_\s,]+/g, ""));
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : null;
+}
+
+function rebuildRussianDatasetBuckets(entries = []) {
+  return entries.reduce((acc, entry) => {
+    const source = entry?.source || "russian";
+    const key = source.startsWith("russian:")
+      ? source.slice("russian:".length)
+      : source;
+
+    if (!acc[key]) {
+      acc[key] = [];
+    }
+
+    acc[key].push(entry);
+    return acc;
+  }, {});
+}
+
+function applyGlobalLimit(buckets, limit) {
+  const totalAvailable =
+    (buckets.projectKnowledgeBase?.length || 0) +
+    (buckets.generalKnowledgeBase?.length || 0) +
+    (buckets.russianDataset?.length || 0);
+
+  if (!limit || !Number.isFinite(limit) || limit <= 0 || totalAvailable <= limit) {
+    return {
+      ...buckets,
+      combined: [
+        ...(buckets.projectKnowledgeBase || []),
+        ...(buckets.generalKnowledgeBase || []),
+        ...(buckets.russianDataset || []),
+      ],
+    };
+  }
+
+  const roundRobinSources = [
+    { key: "projectKnowledgeBase", entries: buckets.projectKnowledgeBase || [], cursor: 0 },
+    { key: "generalKnowledgeBase", entries: buckets.generalKnowledgeBase || [], cursor: 0 },
+    { key: "russianDataset", entries: buckets.russianDataset || [], cursor: 0 },
+  ];
+
+  const sliced = {
+    projectKnowledgeBase: [],
+    generalKnowledgeBase: [],
+    russianDataset: [],
+  };
+
+  let taken = 0;
+  while (taken < limit && roundRobinSources.some((s) => s.cursor < s.entries.length)) {
+    for (const source of roundRobinSources) {
+      if (taken >= limit) break;
+      if (source.cursor >= source.entries.length) continue;
+
+      sliced[source.key].push(source.entries[source.cursor]);
+      source.cursor += 1;
+      taken += 1;
+    }
+  }
+
+  const combined = [
+    ...sliced.projectKnowledgeBase,
+    ...sliced.generalKnowledgeBase,
+    ...sliced.russianDataset,
+  ];
+
+  const russianDatasets = rebuildRussianDatasetBuckets(sliced.russianDataset);
+
+  console.log(
+    `⏬ Применён глобальный лимит KB: загружено ${taken}/${totalAvailable} записей (параметр KB_GLOBAL_LIMIT/KB_MAX_RECORDS)`
+  );
+
+  return {
+    ...sliced,
+    russianDatasets,
+    combined,
+  };
+}
+
 let knowledgeStore = {
   projectKnowledgeBase: [],
   generalKnowledgeBase: [],
@@ -194,17 +284,31 @@ async function loadKnowledgeBaseFromStorage({
     } мс`
   );
 
+  const globalLimit =
+    parseGlobalLimit(process.env.KB_GLOBAL_LIMIT) ||
+    parseGlobalLimit(process.env.KB_MAX_RECORDS);
+
+  const limitedBuckets = applyGlobalLimit(
+    {
+      projectKnowledgeBase,
+      generalKnowledgeBase,
+      russianDataset,
+      russianDatasets,
+    },
+    globalLimit
+  );
+
   const knowledgeBase = validateAndEnrichKnowledgeBase(
-    [...projectKnowledgeBase, ...generalKnowledgeBase, ...russianDataset],
+    limitedBuckets.combined,
     { withProgress: true }
   );
 
   return {
     knowledgeBase,
-    projectKnowledgeBase,
-    generalKnowledgeBase,
-    russianDataset,
-    russianDatasets,
+    projectKnowledgeBase: limitedBuckets.projectKnowledgeBase,
+    generalKnowledgeBase: limitedBuckets.generalKnowledgeBase,
+    russianDataset: limitedBuckets.russianDataset,
+    russianDatasets: limitedBuckets.russianDatasets,
   };
 }
 
