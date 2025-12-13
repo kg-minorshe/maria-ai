@@ -257,12 +257,34 @@ async function reloadKnowledgeBase({
   };
 }
 
+function parseLimit(value) {
+  if (typeof value === "undefined") return null;
+
+  const sanitized = typeof value === "string" ? value.replace(/[_\s,]+/g, "") : value;
+  const parsed = Number(sanitized);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return Math.floor(parsed);
+}
+
 async function loadKnowledgeBaseFromStorage({
   projectPath,
   generalPath,
   rootDir = path.resolve(__dirname, "../.."),
 } = {}) {
-  const globalLimit = null;
+  const globalLimit =
+    parseLimit(process.env.KB_GLOBAL_LIMIT) || parseLimit(process.env.KB_MAX_RECORDS);
+
+  if (globalLimit) {
+    console.log(
+      `⏬ Глобальный лимит базы знаний: ${globalLimit} записей (KB_GLOBAL_LIMIT/KB_MAX_RECORDS)`
+    );
+  } else {
+    console.log("⏬ Глобальный лимит базы знаний отключён (все записи)");
+  }
 
   const paths = resolveKnowledgePaths(rootDir);
 
@@ -322,8 +344,12 @@ async function loadKnowledgeBaseFromStorage({
   );
 
   const russianStart = Date.now();
-  const russianLimit = null;
-  console.log("🔢 Лимит загрузки русских датасетов отключён (все записи)");
+  const russianLimit = parseLimit(process.env.KB_RUSSIAN_LIMIT);
+  if (russianLimit) {
+    console.log(`🔢 Лимит загрузки русских датасетов: ${russianLimit} записей на датасет`);
+  } else {
+    console.log("🔢 Лимит загрузки русских датасетов отключён (все записи)");
+  }
   const { datasets: russianDatasetsRaw } = await loadRussianDatasets({
     rootDir,
     inputs: russianInputs,
@@ -356,6 +382,12 @@ async function loadKnowledgeBaseFromStorage({
     },
     globalLimit
   );
+
+  if (globalLimit && limitedBuckets.combined.length === projectKnowledgeBase.length + generalKnowledgeBase.length + russianDataset.length) {
+    console.log(
+      "ℹ️  Глобальный лимит указан, но не применён: суммарное число записей меньше указанного ограничения"
+    );
+  }
 
   const knowledgeBase = validateAndEnrichKnowledgeBase(
     limitedBuckets.combined,
