@@ -1,5 +1,6 @@
 const tf = require("@tensorflow/tfjs");
-const { LRUCache } = require("lru-cache");
+const path = require("path");
+const { PersistentLRUCache } = require("./persistentLRUCache");
 const { logDebug } = require("../utils/logger");
 
 class LocalEmbeddingRuntime {
@@ -7,11 +8,16 @@ class LocalEmbeddingRuntime {
     knowledgeBase = [],
     embeddingSize = 256,
     cacheLimit = 5000,
-    cacheTTL = 10 * 60 * 1000,
+    cacheDir = path.join(process.cwd(), "data/cache/embeddings/local"),
   } = {}) {
     this.embeddingSize = embeddingSize;
     this.tfAvailable = Boolean(tf);
-    this.cache = new LRUCache({ max: cacheLimit, ttl: cacheTTL });
+    this.cache = new PersistentLRUCache({
+      maxMemoryEntries: cacheLimit,
+      persistDir: cacheDir,
+      serialize: (value) => JSON.stringify(Array.from(value)),
+      deserialize: (raw) => Float32Array.from(JSON.parse(raw)),
+    });
     this.stopWords = new Set([
       "the",
       "and",

@@ -1,16 +1,23 @@
+const path = require("path");
 const { pipeline } = require("@xenova/transformers");
-const { LRUCache } = require("lru-cache");
 const { logDebug, logError } = require("../utils/logger");
+const { PersistentLRUCache } = require("./persistentLRUCache");
 
 class SemanticEmbeddingRuntime {
   constructor({
     modelId = "Xenova/all-MiniLM-L6-v2",
     cacheDir,
     cacheLimit = 2000,
+    cachePersistDir = path.join(process.cwd(), "data/cache/embeddings/semantic"),
   } = {}) {
     this.modelId = modelId;
     this.cacheDir = cacheDir;
-    this.cache = new LRUCache({ max: cacheLimit });
+    this.cache = new PersistentLRUCache({
+      maxMemoryEntries: cacheLimit,
+      persistDir: cachePersistDir,
+      serialize: (value) => JSON.stringify(Array.from(value)),
+      deserialize: (raw) => Float32Array.from(JSON.parse(raw)),
+    });
     this.initialized = false;
     this.embeddingSize = 384;
   }
