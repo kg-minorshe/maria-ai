@@ -33,7 +33,7 @@ function normalizePositiveLimit(value, fallback = DEFAULT_LIMIT_PER_DATASET) {
 function isDirectory(p) {
   try {
     return fs.statSync(p).isDirectory();
-  } catch {
+  } catch (error) {
     return false;
   }
 }
@@ -85,8 +85,18 @@ function ensureDatasetExists(datasetPath = DEFAULT_DATASET_PATH) {
 }
 
 async function readJsonl(datasetPath, { limit } = {}) {
-  const content = fs.readFileSync(datasetPath, { encoding: "utf8" });
-  const lines = content.split(/\r?\n/);
+  let content;
+
+  try {
+    content = fs.readFileSync(datasetPath, { encoding: "utf8" });
+  } catch (error) {
+    console.warn(`⚠️  Не удалось прочитать датасет ${datasetPath}: ${error.message}`);
+    return [];
+  }
+
+  // На некоторых системах возможен BOM — убираем его, чтобы JSON.parse не падал.
+  const normalizedContent = content.replace(/^\uFEFF/, "");
+  const lines = normalizedContent.split(/\r?\n/);
 
   const result = [];
   let lineNumber = 0;
