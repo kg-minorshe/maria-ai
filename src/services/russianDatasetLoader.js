@@ -1,6 +1,5 @@
 const fs = require("fs");
 const path = require("path");
-const readline = require("readline");
 
 const DEFAULT_DATASET_PATH = path.join(
   path.resolve(__dirname, "../.."),
@@ -34,7 +33,7 @@ function normalizePositiveLimit(value, fallback = DEFAULT_LIMIT_PER_DATASET) {
 function isDirectory(p) {
   try {
     return fs.statSync(p).isDirectory();
-  } catch {
+  } catch (error) {
     return false;
   }
 }
@@ -86,13 +85,23 @@ function ensureDatasetExists(datasetPath = DEFAULT_DATASET_PATH) {
 }
 
 async function readJsonl(datasetPath, { limit } = {}) {
-  const fileStream = fs.createReadStream(datasetPath, { encoding: "utf8" });
-  const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+  let content;
+
+  try {
+    content = fs.readFileSync(datasetPath, { encoding: "utf8" });
+  } catch (error) {
+    console.warn(`⚠️  Не удалось прочитать датасет ${datasetPath}: ${error.message}`);
+    return [];
+  }
+
+  // На некоторых системах возможен BOM — убираем его, чтобы JSON.parse не падал.
+  const normalizedContent = content.replace(/^\uFEFF/, "");
+  const lines = normalizedContent.split(/\r?\n/);
 
   const result = [];
   let lineNumber = 0;
 
-  for await (const line of rl) {
+  for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
