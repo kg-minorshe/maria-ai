@@ -1,17 +1,40 @@
+const LRUCache = require("lru-cache");
+const emojiRegex = require("emoji-regex");
+const {
+    clamp,
+    sortBy,
+    sumBy,
+    takeRight,
+    uniqBy,
+    words,
+} = require("lodash");
+const { nanoid } = require("nanoid");
+
 class DialogContextManager {
     constructor() {
-        this.sessions = new Map();
-        this.maxHistoryLength = 25;
-        this.contextTimeout = 45 * 60 * 1000; // 45 минут
+        this.maxHistoryLength = clamp(Number(process.env.MAX_HISTORY_LENGTH) || 25, 10, 100);
+        this.contextTimeout = Number(process.env.CONTEXT_TTL_MS) || 45 * 60 * 1000; // 45 минут
+        this.maxSessions = Number(process.env.MAX_SESSION_CONTEXTS) || 2000;
+        this.sessions = new LRUCache({
+            max: this.maxSessions,
+            ttl: this.contextTimeout,
+            updateAgeOnGet: true,
+            ttlAutopurge: true,
+        });
         this.emotionalStates = new Map(); // Отслеживание эмоционального состояния
     }
 
     getOrCreateSession(sessionId) {
-        if (!this.sessions.has(sessionId)) {
-            this.sessions.set(sessionId, new SessionContext(sessionId));
+        let session = this.sessions.get(sessionId);
+
+        if (!session) {
+            session = new SessionContext(sessionId);
         }
-        const session = this.sessions.get(sessionId);
+
+        // Обновляем TTL сессии и фиксируем активность, чтобы LRU-буфер не разрастался бесконтрольно
         session.updateActivity();
+        this.sessions.set(sessionId, session, { ttl: this.contextTimeout });
+
         return session;
     }
 
@@ -38,29 +61,52 @@ class DialogContextManager {
     }
 
     analyzeEmotionalState(message) {
-        const positivePatterns = [
-            /спасибо/i, /благодар/i, /отличн/i, /супер/i, /класс/i, /здорово/i, /круто/i
-        ];
-        const negativePatterns = [
-            /плох/i, /ужас/i, /не работа/i, /глуп/i, /тупо/i, /дура/i, /не понима/i
-        ];
-        const confusionPatterns = [
-            /не понятн/i, /запутал/i, /сложн/i, /не разобра/i, /что.*значит/i
-        ];
+        const emojis = message.match(emojiRegex()) || [];
+        const emojiScore = sumBy(emojis, (emoji) => {
+            if (["😊", "😀", "😃", "🥳", "👍", "🔥"].includes(emoji)) return 2;
+            if (["😢", "😭", "😡", "👎", "🤦", "💔"].includes(emoji)) return -2;
+            return 0;
+        });
 
-        if (positivePatterns.some(p => p.test(message))) return 'positive';
-        if (negativePatterns.some(p => p.test(message))) return 'negative';
-        if (confusionPatterns.some(p => p.test(message))) return 'confused';
+        const lexical = words(message.toLowerCase());
+        const lexicon = {
+            'спасибо': 2,
+            'благодарю': 2,
+            'отлично': 2,
+            'хорошо': 1,
+            'классно': 2,
+            'понравилось': 2,
+            'плохо': -2,
+            'ужасно': -3,
+            'непонятно': -2,
+            'сложно': -1,
+            'не работает': -3,
+            'глупо': -2,
+            'тупо': -2,
+            'ошибка': -2,
+            'подскажи': 1,
+            'помоги': 1,
+        };
+
+        const lexicalScore = sumBy(lexical, (word) => lexicon[word] || 0);
+        const frictionPenalty = /не\s*(ясно|понятно|разобраться|разобрался|работает)/i.test(message) ? -2 : 0;
+        const combinedScore = clamp(lexicalScore + emojiScore + frictionPenalty, -10, 10);
+
+        if (combinedScore >= 3) return 'positive';
+        if (combinedScore <= -3) return 'negative';
+        if (/не\s*(ясно|понятно|разобраться|разобрался|работает)/i.test(message)) {
+            return 'confused';
+        }
         return 'neutral';
     }
 
     cleanupOldSessions() {
         const now = Date.now();
-        for (const [sessionId, session] of this.sessions.entries()) {
+        this.sessions.forEach((session, sessionId) => {
             if (now - session.lastActivity > this.contextTimeout) {
                 this.sessions.delete(sessionId);
             }
-        }
+        });
     }
 }
 
@@ -205,11 +251,12 @@ class SessionContext {
     limitHistory() {
         if (this.history.length > this.maxHistoryLength) {
             const important = this.history.filter(h => h.important || h.emotionalState === 'negative');
-            const recent = this.history.slice(-18);
-            
-            // Убираем дубли
-            const uniqueRecent = recent.filter(r => !important.find(i => i.id === r.id));
-            this.history = [...important.slice(-4), ...uniqueRecent];
+            const recent = takeRight(this.history, 18);
+
+            // Убираем дубли на готовой библиотеке, чтобы не городить велосипеды
+            const deduped = uniqBy([...important, ...recent], 'id');
+            const sorted = takeRight(sortBy(deduped, 'timestamp'), this.maxHistoryLength);
+            this.history = sorted;
         }
 
         // Ограничиваем эмоциональную историю
@@ -219,7 +266,7 @@ class SessionContext {
     }
 
     generateId() {
-        return `${Date.now()}_${Math.random().toString(36).substr(2, 12)}`;
+        return nanoid();
     }
 
     updateActivity() {
