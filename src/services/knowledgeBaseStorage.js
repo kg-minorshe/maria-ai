@@ -109,9 +109,19 @@ async function getMysqlPool(customConfig = {}) {
           ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
         `);
 
-        await conn.query(
-          "CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge_entries(category)"
-        );
+        // MySQL не поддерживает IF NOT EXISTS для индексов, поэтому
+        // пытаемся создать индекс и игнорируем ошибку дубликата.
+        try {
+          await conn.query(
+            "CREATE INDEX idx_knowledge_category ON knowledge_entries(category)"
+          );
+        } catch (indexError) {
+          if (indexError?.code !== "ER_DUP_KEYNAME") {
+            console.warn(
+              `⚠️ Не удалось создать индекс knowledge_entries.category: ${indexError.message}`
+            );
+          }
+        }
 
         conn.release();
         return pool;

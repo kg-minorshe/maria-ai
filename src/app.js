@@ -790,8 +790,14 @@ app.post("/api/chat/query", async (req, res) => {
 });
 
 // API для работы с контекстом
-app.get("/api/chat/context", (req, res) => {
+app.get("/api/chat/context", async (req, res) => {
   try {
+    await ensureSystemReady();
+
+    if (!contextManager) {
+      throw new Error("Контекстный менеджер не инициализирован");
+    }
+
     const sessionId = req.session.id;
     if (!sessionId) {
       return res.status(400).json({
@@ -823,11 +829,13 @@ app.get("/api/chat/context", (req, res) => {
 });
 
 // Очистка контекста сессии
-app.delete("/api/chat/context", (req, res) => {
+app.delete("/api/chat/context", async (req, res) => {
   try {
+    await ensureSystemReady();
+
     const sessionId = req.session.id;
 
-    if (sessionId && contextManager.sessions.has(sessionId)) {
+    if (sessionId && contextManager?.sessions?.has(sessionId)) {
       contextManager.sessions.delete(sessionId);
     }
 
