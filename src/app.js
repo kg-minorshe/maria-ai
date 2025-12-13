@@ -257,9 +257,14 @@ app.post("/api/chat/query", async (req, res) => {
   const processingStart = Date.now();
   logStep("request:received", { path: req.path, method: req.method });
   try {
-    const { message } = req.body;
-    devLog("Запрос получен", { message });
-    logStep("request:payload", { messageLength: message?.length });
+    const { message, searchEnabled } = req.body;
+    const isWebSearchAllowed = searchEnabled === true;
+
+    devLog("Запрос получен", { message, searchEnabled });
+    logStep("request:payload", {
+      messageLength: message?.length,
+      webSearchOptIn: isWebSearchAllowed,
+    });
 
     systemStats.totalQueries++;
 
@@ -626,7 +631,9 @@ app.post("/api/chat/query", async (req, res) => {
 
     let webSearchResults = [];
     const shouldFallbackToWebSearch =
-      searchResultsList.length === 0 && webSearchService?.isEnabled();
+      searchResultsList.length === 0 &&
+      isWebSearchAllowed &&
+      webSearchService?.isEnabled();
 
     if (shouldFallbackToWebSearch) {
       try {
@@ -688,6 +695,7 @@ app.post("/api/chat/query", async (req, res) => {
     });
 
     const needsWebSearchBackup =
+      isWebSearchAllowed &&
       webSearchService?.isEnabled() &&
       !shouldFallbackToWebSearch &&
       (response.responseType === "no_results" || response.confidence <= 0.35);
