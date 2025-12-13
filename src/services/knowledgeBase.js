@@ -258,13 +258,16 @@ async function reloadKnowledgeBase({
 }
 
 function parseLimit(value) {
-  const parsed = Number(value);
+  if (typeof value === "undefined") return null;
+
+  const sanitized = typeof value === "string" ? value.replace(/[_\s,]+/g, "") : value;
+  const parsed = Number(sanitized);
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return null;
   }
 
-  return parsed;
+  return Math.floor(parsed);
 }
 
 async function loadKnowledgeBaseFromStorage({
@@ -379,6 +382,12 @@ async function loadKnowledgeBaseFromStorage({
     },
     globalLimit
   );
+
+  if (globalLimit && limitedBuckets.combined.length === projectKnowledgeBase.length + generalKnowledgeBase.length + russianDataset.length) {
+    console.log(
+      "ℹ️  Глобальный лимит указан, но не применён: суммарное число записей меньше указанного ограничения"
+    );
+  }
 
   const knowledgeBase = validateAndEnrichKnowledgeBase(
     limitedBuckets.combined,
