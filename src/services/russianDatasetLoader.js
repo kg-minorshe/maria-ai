@@ -12,7 +12,9 @@ const DEFAULT_DATASET_PATH = path.join(
 const DEFAULT_LIMIT_PER_DATASET = 1000;
 
 function normalizePositiveLimit(value, fallback = DEFAULT_LIMIT_PER_DATASET) {
-  const limit = Number(value);
+  const sanitized =
+    typeof value === "string" ? value.replace(/[_\s,]+/g, "") : value;
+  const limit = Number(sanitized);
 
   if (Number.isFinite(limit) && limit > 0) {
     return Math.floor(limit);
@@ -215,15 +217,22 @@ async function loadRussianDatasets({
   }
 
   const effectiveLimit = normalizePositiveLimit(limitPerDataset);
+  const sanitizedInput =
+    typeof limitPerDataset === "string"
+      ? limitPerDataset.replace(/[_\s,]+/g, "")
+      : limitPerDataset;
+  const parsedInput = Number(sanitizedInput);
 
-  if (
-    typeof limitPerDataset !== "undefined" &&
-    effectiveLimit !== limitPerDataset &&
-    Number(limitPerDataset) !== effectiveLimit
-  ) {
-    console.warn(
-      `⚠️  Некорректное значение KB_RUSSIAN_LIMIT (${limitPerDataset}). Использую безопасное значение ${effectiveLimit}.`
-    );
+  if (typeof limitPerDataset !== "undefined") {
+    if (!Number.isFinite(parsedInput) || parsedInput <= 0) {
+      console.warn(
+        `⚠️  Некорректное значение KB_RUSSIAN_LIMIT (${limitPerDataset}). Использую безопасное значение ${effectiveLimit}.`
+      );
+    } else if (Math.floor(parsedInput) !== effectiveLimit) {
+      console.warn(
+        `⚠️  KB_RUSSIAN_LIMIT (${limitPerDataset}) нормализован до ${effectiveLimit}.`
+      );
+    }
   }
 
   const datasets = {};
