@@ -202,7 +202,7 @@ async function loadRussianDatasets({
   const datasets = {};
   const all = [];
 
-  const pushBatch = (target, source, batchSize = 100000, label = "") => {
+  const pushBatch = (target, source, batchSize = 10000, label = "") => {
     if (!Array.isArray(source) || !source.length) return;
 
     for (let i = 0; i < source.length; i += batchSize) {
@@ -231,7 +231,7 @@ async function loadRussianDatasets({
     });
 
     datasets[key] = entries;
-    pushBatch(all, entries, 100000, key);
+    pushBatch(all, entries, 10000, key);
   }
 
   return { datasets, all };
