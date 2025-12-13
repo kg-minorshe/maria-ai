@@ -564,6 +564,7 @@ async function parseJsonArrayStream(filePath, label) {
   let inString = false;
   let escaped = false;
   let arrayStarted = false;
+  let reachedEnd = false;
 
   const pushBuffer = () => {
     const chunk = buffer.trim();
@@ -582,45 +583,52 @@ async function parseJsonArrayStream(filePath, label) {
 
   const stream = fs.createReadStream(filePath, { encoding: "utf8" });
 
-  for await (const chunk of stream) {
-    for (let i = 0; i < chunk.length; i += 1) {
-      const char = chunk[i];
+  try {
+    for await (const chunk of stream) {
+      for (let i = 0; i < chunk.length; i += 1) {
+        const char = chunk[i];
 
-      if (!arrayStarted) {
-        if (char === "[") {
-          arrayStarted = true;
+        if (!arrayStarted) {
+          if (char === "[") {
+            arrayStarted = true;
+          }
+          continue;
         }
-        continue;
-      }
 
-      if (!inString && depth === 0 && char === "]") {
-        pushBuffer();
-        return result;
-      }
+        if (!inString && depth === 0 && char === "]") {
+          pushBuffer();
+          reachedEnd = true;
+          break;
+        }
 
-      buffer += char;
+        buffer += char;
 
-      if (inString) {
-        escaped = char === "\\" && !escaped;
+        if (inString) {
+          escaped = char === "\\" && !escaped;
+          if (char === "\"" && !escaped) {
+            inString = false;
+          }
+          continue;
+        }
+
         if (char === "\"" && !escaped) {
-          inString = false;
+          inString = true;
+          escaped = false;
+          continue;
         }
-        continue;
+
+        if (char === "{" || char === "[") depth += 1;
+        if (char === "}" || char === "]") depth -= 1;
+
+        if (char === "," && depth === 0) {
+          pushBuffer();
+        }
       }
 
-      if (char === "\"" && !escaped) {
-        inString = true;
-        escaped = false;
-        continue;
-      }
-
-      if (char === "{" || char === "[") depth += 1;
-      if (char === "}" || char === "]") depth -= 1;
-
-      if (char === "," && depth === 0) {
-        pushBuffer();
-      }
+      if (reachedEnd) break;
     }
+  } finally {
+    stream.destroy();
   }
 
   pushBuffer();
@@ -629,7 +637,11 @@ async function parseJsonArrayStream(filePath, label) {
 
 async function parseNdjsonStream(filePath, label) {
   const stream = fs.createReadStream(filePath, { encoding: "utf8" });
-  return parseNdjsonGenerator(stream, label);
+  try {
+    return await parseNdjsonGenerator(stream, label);
+  } finally {
+    stream.destroy();
+  }
 }
 
 function parseNdjsonInMemory(rawData, label) {

@@ -92,28 +92,33 @@ async function readJsonl(datasetPath, { limit } = {}) {
   const result = [];
   let lineNumber = 0;
 
-  for await (const line of rl) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
+  try {
+    for await (const line of rl) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
 
-    lineNumber += 1;
+      lineNumber += 1;
 
-    try {
-      result.push(JSON.parse(trimmed));
-    } catch (error) {
-      console.warn(`⚠️  Строка ${lineNumber} в ${datasetPath} не распознана и будет пропущена`);
+      try {
+        result.push(JSON.parse(trimmed));
+      } catch (error) {
+        console.warn(`⚠️  Строка ${lineNumber} в ${datasetPath} не распознана и будет пропущена`);
+      }
+
+      if (result.length % 1000 === 0) {
+        console.log(`📥 Загружено ${result.length} записей из ${path.basename(datasetPath)} в память`);
+      }
+
+      if (typeof limit === "number" && limit > 0 && result.length >= limit) {
+        console.log(
+          `⏩ Достигнут лимит загрузки ${limit} строк для ${path.basename(datasetPath)}, дальнейшее чтение остановлено`
+        );
+        break;
+      }
     }
-
-    if (result.length % 1000 === 0) {
-      console.log(`📥 Загружено ${result.length} записей из ${path.basename(datasetPath)} в память`);
-    }
-
-    if (typeof limit === "number" && limit > 0 && result.length >= limit) {
-      console.log(
-        `⏩ Достигнут лимит загрузки ${limit} строк для ${path.basename(datasetPath)}, дальнейшее чтение остановлено`
-      );
-      break;
-    }
+  } finally {
+    rl.close();
+    fileStream.destroy();
   }
 
   return result;
