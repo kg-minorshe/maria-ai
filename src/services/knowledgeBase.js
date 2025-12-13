@@ -1,9 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const {
-  loadRussianDatasets,
-} = require("./russianDatasetLoader");
-const { SemanticEmbeddingRuntime } = require("./semanticEmbeddingRuntime");
+const { loadRussianDatasets } = require("./russianDatasetLoader");
 
 function rebuildRussianDatasetBuckets(entries = []) {
   return entries.reduce((acc, entry) => {
@@ -118,48 +115,6 @@ function applyGlobalLimit(buckets, limit) {
   };
 }
 
-async function getGptEmbeddingRuntime() {
-  if (!gptEmbeddingRuntime) {
-    gptEmbeddingRuntime = new SemanticEmbeddingRuntime({
-      modelId: process.env.KB_GPT_EMBED_MODEL || process.env.EMBEDDING_MODEL_ID,
-      cacheDir: process.env.KB_GPT_EMBED_CACHE_DIR || DEFAULT_GPT_CACHE_DIR,
-      cacheLimit: Number(process.env.KB_GPT_CACHE_LIMIT) || 10000,
-    });
-  }
-
-  return gptEmbeddingRuntime;
-}
-
-async function enrichWithGptEmbeddings(entries = []) {
-  if (!entries?.length) return entries;
-
-  try {
-    const runtime = await getGptEmbeddingRuntime();
-    await Promise.all(
-      entries.map(async (entry, index) => {
-        if (entry.embedding && entry.embedding.length) return;
-
-        const sourceText = entry.content || entry.title || "";
-        if (!sourceText) return;
-
-        entry.embedding = await runtime.embedText(sourceText);
-
-        if ((index + 1) % 500 === 0) {
-          console.log(
-            `🤖 GPT-эмбеддинги рассчитаны для ${index + 1} записей базы знаний`
-          );
-        }
-      })
-    );
-  } catch (error) {
-    console.warn(
-      `⚠️ Не удалось построить GPT-эмбеддинги при загрузке KB: ${error.message}`
-    );
-  }
-
-  return entries;
-}
-
 let knowledgeStore = {
   projectKnowledgeBase: [],
   generalKnowledgeBase: [],
@@ -174,14 +129,6 @@ let knowledgeStore = {
   loadedAt: null,
   loadTimeMs: 0,
 };
-
-const DEFAULT_GPT_CACHE_DIR = path.join(
-  path.resolve(__dirname, "../.."),
-  "data",
-  "cache",
-  "gpt-embeddings"
-);
-let gptEmbeddingRuntime = null;
 
 function resolveKnowledgePaths(rootDir) {
   const knowledgeDir = path.join(rootDir, "data", "knowledge");
@@ -394,10 +341,8 @@ async function loadKnowledgeBaseFromStorage({
     { withProgress: true }
   );
 
-  const knowledgeBaseWithEmbeddings = await enrichWithGptEmbeddings(knowledgeBase);
-
   return {
-    knowledgeBase: knowledgeBaseWithEmbeddings,
+    knowledgeBase,
     projectKnowledgeBase: limitedBuckets.projectKnowledgeBase,
     generalKnowledgeBase: limitedBuckets.generalKnowledgeBase,
     russianDataset: limitedBuckets.russianDataset,
