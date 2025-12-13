@@ -202,6 +202,21 @@ async function loadRussianDatasets({
   const datasets = {};
   const all = [];
 
+  const pushBatch = (target, source, batchSize = 100000, label = "") => {
+    if (!Array.isArray(source) || !source.length) return;
+
+    for (let i = 0; i < source.length; i += batchSize) {
+      const slice = source.slice(i, i + batchSize);
+      target.push(...slice);
+
+      if ((target.length % batchSize === 0 || i + batchSize >= source.length) && label) {
+        console.log(
+          `📦 Добавлено ${target.length} записей в общий русский датасет (${label})`
+        );
+      }
+    }
+  };
+
   for (const fileAbs of expandedFiles) {
     if (!fs.existsSync(fileAbs)) {
       console.warn(`⚠️  Русский датасет не найден: ${fileAbs}`);
@@ -216,7 +231,7 @@ async function loadRussianDatasets({
     });
 
     datasets[key] = entries;
-    all.push(...entries);
+    pushBatch(all, entries, 100000, key);
   }
 
   return { datasets, all };
