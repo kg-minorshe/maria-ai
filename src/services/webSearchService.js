@@ -21,7 +21,6 @@ class WebSearchService {
     const effectiveTimeout = timeoutMs || this.timeoutMs;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), effectiveTimeout);
-
     const fetchFn = (...args) =>
       typeof fetch !== "undefined"
         ? fetch(...args)
@@ -38,13 +37,29 @@ class WebSearchService {
         signal: controller.signal,
       });
 
-      clearTimeout(timeout);
+      const contentType = response.headers?.get?.("content-type") || "";
+      const rawBody = await response.text();
 
       if (!response.ok) {
-        throw new Error(`Web search service responded with ${response.status}`);
+        throw new Error(
+          `Web search service responded with ${response.status} (${contentType}): ${rawBody.slice(
+            0,
+            300
+          )}`
+        );
       }
 
-      const data = await response.json();
+      let data;
+      try {
+        data = JSON.parse(rawBody);
+      } catch (parseError) {
+        throw new Error(
+          `Unexpected web search payload (${contentType || "unknown"}): ${rawBody
+            .slice(0, 300)
+            .replace(/\s+/g, " ")}`
+        );
+      }
+
       const results = Array.isArray(data?.results) ? data.results : [];
       logDebug("WebSearch", "Получены результаты внешнего поиска", {
         results: results.length,
@@ -53,7 +68,6 @@ class WebSearchService {
 
       return this.normalizeResults(results);
     } catch (error) {
-      clearTimeout(timeout);
       const isAbortError = error.name === "AbortError";
       logError("WebSearch", "Поиск в интернете недоступен", error);
       logStep("search:web:error", {
@@ -61,6 +75,8 @@ class WebSearchService {
         message: error.message,
       });
       return [];
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
