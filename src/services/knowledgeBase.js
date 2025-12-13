@@ -1,6 +1,10 @@
 const fs = require("fs");
 const path = require("path");
-const { loadRussianDatasets } = require("./russianDatasetLoader");
+const {
+  loadRussianDatasets,
+  DEFAULT_LIMIT_PER_DATASET,
+  normalizePositiveLimit,
+} = require("./russianDatasetLoader");
 const {
   saveKnowledgeBaseEntries,
   loadKnowledgeBaseFromDb,
@@ -159,11 +163,18 @@ async function loadKnowledgeBaseFromStorage({
   );
 
   const russianStart = Date.now();
+  const russianLimit = normalizePositiveLimit(
+    process.env.KB_RUSSIAN_LIMIT,
+    DEFAULT_LIMIT_PER_DATASET
+  );
+  console.log(
+    `🔢 Лимит загрузки русских датасетов: ${russianLimit} записей на файл (KB_RUSSIAN_LIMIT)`
+  );
   const { datasets: russianDatasetsRaw, all: russianAllRaw } =
     await loadRussianDatasets({
       rootDir,
       inputs: russianInputs,
-      limitPerDataset: Number(process.env.KB_RUSSIAN_LIMIT || 750),
+      limitPerDataset: russianLimit,
       // если хочешь общий лимит на всё — добавим позже, но сейчас сделаем просто per dataset
     });
 
