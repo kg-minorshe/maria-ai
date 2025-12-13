@@ -643,7 +643,7 @@ app.post("/api/chat/query", async (req, res) => {
       }
     }
 
-    const normalizedSearchResults =
+    let normalizedSearchResults =
       searchResultsList.length > 0 ? searchResultsList : webSearchResults;
 
     // 9. Генерация ответа с учётом когнитивной модели и защитой от ошибок
@@ -686,6 +686,52 @@ app.post("/api/chat/query", async (req, res) => {
       responseType: response.responseType,
       confidence: response.confidence,
     });
+
+    const needsWebSearchBackup =
+      webSearchService?.isEnabled() &&
+      !shouldFallbackToWebSearch &&
+      (response.responseType === "no_results" || response.confidence <= 0.35);
+
+    if (needsWebSearchBackup) {
+      try {
+        const webSearchStart = Date.now();
+        webSearchResults = await webSearchService.search(resolvedMessage, {
+          limit: Number(process.env.WEB_SEARCH_DEFAULT_LIMIT) || 5,
+        });
+
+        logStep("search:web:fallback", {
+          durationMs: Date.now() - webSearchStart,
+          results: webSearchResults.length,
+        });
+
+        if (webSearchResults.length > 0) {
+          normalizedSearchResults = webSearchResults;
+          const responseStart = Date.now();
+          response = responseGenerator.generateResponse(
+            queryAnalysis,
+            normalizedSearchResults,
+            {
+              ...context,
+              userProfile,
+              emotionalState,
+              responseStrategy:
+                userProfile?.getAdaptedResponseStrategy?.() || {
+                  style: "balanced",
+                  detailLevel: "medium",
+                  emotionalTone: "neutral",
+                },
+              reasoningResult,
+            }
+          );
+          logStep("response:regenerated:web", {
+            durationMs: Date.now() - responseStart,
+            responseType: response.responseType,
+          });
+        }
+      } catch (error) {
+        logError("webSearch", "Резервный веб-поиск завершился ошибкой", error);
+      }
+    }
 
     // 10. Применяем эмоциональную адаптацию с защитой от ошибок
     let empathicResponse;
@@ -764,7 +810,7 @@ app.post("/api/chat/query", async (req, res) => {
           contextLoaded: Boolean(dialogContext),
           emotionalAnalysis: Boolean(emotionalAnalysis),
           reasoning: needsReasoning ? "applied" : "skipped",
-          search: Boolean(searchResults),
+          search: Boolean(normalizedSearchResults?.length),
           responseGenerated: Boolean(response?.answer),
         },
         reasoningType: reasoningResult?.reasoningType || "none",
