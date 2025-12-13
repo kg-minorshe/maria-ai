@@ -130,7 +130,7 @@ async function loadKnowledgeBaseFromStorage({
 
   const projectStart = Date.now();
   const projectKnowledgeBase = appendSource(
-    loadKnowledgeBaseFile(
+    await loadKnowledgeBaseFile(
       resolvedProjectPath,
       createSampleProjectKnowledgeBase,
       "проектная база знаний"
@@ -145,7 +145,7 @@ async function loadKnowledgeBaseFromStorage({
 
   const generalStart = Date.now();
   const generalKnowledgeBase = appendSource(
-    loadKnowledgeBaseFile(
+    await loadKnowledgeBaseFile(
       resolvedGeneralPath,
       createSampleGeneralKnowledgeBase,
       "общая база знаний"
@@ -197,20 +197,242 @@ async function loadKnowledgeBaseFromStorage({
   };
 }
 
-function loadKnowledgeBaseFile(filePath, sampleCreator, label) {
+async function loadKnowledgeBaseFile(filePath, sampleCreator, label) {
   if (!fs.existsSync(filePath)) {
     console.warn(`⚠️  ${label} не найдена. Создаю пример...`);
     sampleCreator(filePath);
   }
 
   const data = fs.readFileSync(filePath, "utf8");
-  const parsed = JSON.parse(data);
+  const fileSizeBytes = fs.statSync(filePath).size;
+  const trimmed = data.trim();
+
+  // Если это NDJSON или файл слишком большой, сразу идём в потоковый разбор,
+  // чтобы не рисковать переполнением стека в JSON.parse.
+  const looksLikeNdjson =
+    path.extname(filePath).toLowerCase() === ".jsonl" ||
+    (trimmed && trimmed[0] !== "[");
+
+  if (looksLikeNdjson) {
+    return parseNdjsonStream(filePath, label);
+  }
+
+  // Для больших файлов (>5 МБ) применяем потоковый парсер массива, минуя JSON.parse
+  // чтобы избежать RangeError: Maximum call stack size exceeded.
+  if (fileSizeBytes > 5 * 1024 * 1024) {
+    return parseJsonArrayStream(filePath, label);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(data);
+  } catch (error) {
+    // Для очень больших или повреждённых файлов JSON.parse может падать
+    // с RangeError: Maximum call stack size exceeded. В таком случае
+    // пробуем безопасный потоковый разбор.
+    if (error instanceof RangeError) {
+      console.warn(
+        `⚠️  ${label}: стандартный парсинг не удался (${error.message}). ` +
+          "Перехожу на итеративный разбор."
+      );
+
+      try {
+        parsed = await safeStreamingParse(data, label);
+      } catch (fallbackError) {
+        console.warn(
+          `⚠️  Потоковый разбор в памяти не удался (${fallbackError.message}). ` +
+            "Перехожу на файловый стрим."
+        );
+        parsed = await parseJsonArrayStream(filePath, label);
+      }
+    } else {
+      throw error;
+    }
+  }
 
   if (!Array.isArray(parsed)) {
     throw new Error(`${label} должна быть массивом статей`);
   }
 
   return parsed;
+}
+
+async function safeStreamingParse(rawData, label) {
+  const trimmed = rawData.trim();
+
+  // Большинство наших файлов — это JSON-массив объектов.
+  // Если файл не начинается с "[", попробуем распознать его как NDJSON.
+  if (!trimmed.startsWith("[")) {
+    return parseNdjsonInMemory(trimmed, label);
+  }
+
+  const result = [];
+
+  let buffer = "";
+  let depth = 0; // глубина вложенности текущего элемента (без внешнего массива)
+  let inString = false;
+  let escaped = false;
+  let arrayStarted = false;
+
+  const pushBuffer = () => {
+    const chunk = buffer.trim();
+    buffer = "";
+
+    if (!chunk) return;
+
+    try {
+      result.push(JSON.parse(chunk));
+    } catch (error) {
+      console.warn(
+        `⚠️  Фрагмент ${result.length + 1} в ${label} пропущен: ${error.message}`
+      );
+    }
+  };
+
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const char = trimmed[i];
+
+    // ждём открывающую скобку массива
+    if (!arrayStarted) {
+      if (char === "[") {
+        arrayStarted = true;
+      }
+      continue;
+    }
+
+    // закрывающая скобка массива — завершаем разбор
+    if (!inString && depth === 0 && char === "]") {
+      pushBuffer();
+      break;
+    }
+
+    buffer += char;
+
+    if (inString) {
+      escaped = char === "\\" && !escaped;
+      if (char === "\"" && !escaped) {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"" && !escaped) {
+      inString = true;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "{" || char === "[") depth += 1;
+    if (char === "}" || char === "]") depth -= 1;
+
+    if (char === "," && depth === 0) {
+      pushBuffer();
+    }
+  }
+
+  return result;
+}
+
+async function parseJsonArrayStream(filePath, label) {
+  const result = [];
+
+  let buffer = "";
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let arrayStarted = false;
+
+  const pushBuffer = () => {
+    const chunk = buffer.trim();
+    buffer = "";
+
+    if (!chunk) return;
+
+    try {
+      result.push(JSON.parse(chunk));
+    } catch (error) {
+      console.warn(
+        `⚠️  Фрагмент ${result.length + 1} в ${label} пропущен: ${error.message}`
+      );
+    }
+  };
+
+  const stream = fs.createReadStream(filePath, { encoding: "utf8" });
+
+  for await (const chunk of stream) {
+    for (let i = 0; i < chunk.length; i += 1) {
+      const char = chunk[i];
+
+      if (!arrayStarted) {
+        if (char === "[") {
+          arrayStarted = true;
+        }
+        continue;
+      }
+
+      if (!inString && depth === 0 && char === "]") {
+        pushBuffer();
+        return result;
+      }
+
+      buffer += char;
+
+      if (inString) {
+        escaped = char === "\\" && !escaped;
+        if (char === "\"" && !escaped) {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === "\"" && !escaped) {
+        inString = true;
+        escaped = false;
+        continue;
+      }
+
+      if (char === "{" || char === "[") depth += 1;
+      if (char === "}" || char === "]") depth -= 1;
+
+      if (char === "," && depth === 0) {
+        pushBuffer();
+      }
+    }
+  }
+
+  pushBuffer();
+  return result;
+}
+
+async function parseNdjsonStream(filePath, label) {
+  const stream = fs.createReadStream(filePath, { encoding: "utf8" });
+  return parseNdjsonGenerator(stream, label);
+}
+
+function parseNdjsonInMemory(rawData, label) {
+  const lines = rawData.split(/\r?\n/);
+  return parseNdjsonGenerator(lines, label);
+}
+
+async function parseNdjsonGenerator(iterable, label) {
+  const result = [];
+  let idx = 0;
+
+  for await (const rawLine of iterable) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    idx += 1;
+
+    try {
+      result.push(JSON.parse(line));
+    } catch (lineError) {
+      console.warn(
+        `⚠️  Строка ${idx} в ${label} пропущена: ${lineError.message}`
+      );
+    }
+  }
+
+  return result;
 }
 
 function createSampleProjectKnowledgeBase(kbPath) {
