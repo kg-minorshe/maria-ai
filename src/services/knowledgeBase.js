@@ -2,8 +2,6 @@ const fs = require("fs");
 const path = require("path");
 const {
   loadRussianDatasets,
-  DEFAULT_LIMIT_PER_DATASET,
-  normalizePositiveLimit,
 } = require("./russianDatasetLoader");
 const {
   saveKnowledgeBaseEntries,
@@ -12,6 +10,7 @@ const {
   loadKnowledgeBaseFromMysql,
   DEFAULT_MYSQL_CONFIG,
 } = require("./knowledgeBaseStorage");
+const { SemanticEmbeddingRuntime } = require("./semanticEmbeddingRuntime");
 
 function parseGlobalLimit(value) {
   if (value === undefined || value === null) {
@@ -33,7 +32,12 @@ function resolveStorageMode() {
     .trim()
     .toLowerCase();
 
-  return mode === "mysql" || mode === "sqlite" ? mode : "file";
+  if (mode === "sqlite") {
+    return "sqlite";
+  }
+
+  // По умолчанию переносим хранение в MySQL, даже если переменные окружения не заданы
+  return "mysql";
 }
 
 function resolveSqlitePath() {
@@ -164,6 +168,48 @@ function applyGlobalLimit(buckets, limit) {
   };
 }
 
+async function getGptEmbeddingRuntime() {
+  if (!gptEmbeddingRuntime) {
+    gptEmbeddingRuntime = new SemanticEmbeddingRuntime({
+      modelId: process.env.KB_GPT_EMBED_MODEL || process.env.EMBEDDING_MODEL_ID,
+      cacheDir: process.env.KB_GPT_EMBED_CACHE_DIR || DEFAULT_GPT_CACHE_DIR,
+      cacheLimit: Number(process.env.KB_GPT_CACHE_LIMIT) || 10000,
+    });
+  }
+
+  return gptEmbeddingRuntime;
+}
+
+async function enrichWithGptEmbeddings(entries = []) {
+  if (!entries?.length) return entries;
+
+  try {
+    const runtime = await getGptEmbeddingRuntime();
+    await Promise.all(
+      entries.map(async (entry, index) => {
+        if (entry.embedding && entry.embedding.length) return;
+
+        const sourceText = entry.content || entry.title || "";
+        if (!sourceText) return;
+
+        entry.embedding = await runtime.embedText(sourceText);
+
+        if ((index + 1) % 500 === 0) {
+          console.log(
+            `🤖 GPT-эмбеддинги рассчитаны для ${index + 1} записей базы знаний`
+          );
+        }
+      })
+    );
+  } catch (error) {
+    console.warn(
+      `⚠️ Не удалось построить GPT-эмбеддинги при загрузке KB: ${error.message}`
+    );
+  }
+
+  return entries;
+}
+
 let knowledgeStore = {
   projectKnowledgeBase: [],
   generalKnowledgeBase: [],
@@ -178,6 +224,14 @@ let knowledgeStore = {
   loadedAt: null,
   loadTimeMs: 0,
 };
+
+const DEFAULT_GPT_CACHE_DIR = path.join(
+  path.resolve(__dirname, "../.."),
+  "data",
+  "cache",
+  "gpt-embeddings"
+);
+let gptEmbeddingRuntime = null;
 
 function resolveKnowledgePaths(rootDir) {
   const knowledgeDir = path.join(rootDir, "data", "knowledge");
@@ -261,9 +315,7 @@ async function loadKnowledgeBaseFromStorage({
   const storageMode = resolveStorageMode();
   const mysqlConfig = resolveMysqlConfig();
   const sqlitePath = resolveSqlitePath();
-  const globalLimit =
-    parseGlobalLimit(process.env.KB_GLOBAL_LIMIT) ||
-    parseGlobalLimit(process.env.KB_MAX_RECORDS);
+  const globalLimit = null;
 
   const paths = resolveKnowledgePaths(rootDir);
 
@@ -313,6 +365,8 @@ async function loadKnowledgeBaseFromStorage({
           limitedBuckets.combined,
           { withProgress: true }
         );
+
+        await enrichWithGptEmbeddings(knowledgeBase);
 
         return {
           knowledgeBase,
@@ -364,13 +418,8 @@ async function loadKnowledgeBaseFromStorage({
   );
 
   const russianStart = Date.now();
-  const russianLimit = normalizePositiveLimit(
-    process.env.KB_RUSSIAN_LIMIT,
-    DEFAULT_LIMIT_PER_DATASET
-  );
-  console.log(
-    `🔢 Лимит загрузки русских датасетов: ${russianLimit} записей на файл (KB_RUSSIAN_LIMIT)`
-  );
+  const russianLimit = null;
+  console.log("🔢 Лимит загрузки русских датасетов отключён (все записи)");
   const { datasets: russianDatasetsRaw } = await loadRussianDatasets({
     rootDir,
     inputs: russianInputs,
@@ -409,9 +458,13 @@ async function loadKnowledgeBaseFromStorage({
     { withProgress: true }
   );
 
+  const knowledgeBaseWithEmbeddings = await enrichWithGptEmbeddings(
+    knowledgeBase
+  );
+
   if (storageMode === "mysql" || storageMode === "sqlite") {
     try {
-      await persistKnowledgeBaseToDatabase(storageMode, knowledgeBase, {
+      await persistKnowledgeBaseToDatabase(storageMode, knowledgeBaseWithEmbeddings, {
         dbPath: sqlitePath || undefined,
         mysqlConfig,
       });
@@ -423,7 +476,7 @@ async function loadKnowledgeBaseFromStorage({
   }
 
   return {
-    knowledgeBase,
+    knowledgeBase: knowledgeBaseWithEmbeddings,
     projectKnowledgeBase: limitedBuckets.projectKnowledgeBase,
     generalKnowledgeBase: limitedBuckets.generalKnowledgeBase,
     russianDataset: limitedBuckets.russianDataset,

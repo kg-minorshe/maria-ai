@@ -9,7 +9,7 @@ const DEFAULT_DATASET_PATH = path.join(
   "russian-open-qa.jsonl"
 );
 
-const DEFAULT_LIMIT_PER_DATASET = 1000;
+const DEFAULT_LIMIT_PER_DATASET = null;
 
 function normalizePositiveLimit(value, fallback = DEFAULT_LIMIT_PER_DATASET) {
   const sanitized =
@@ -20,7 +20,7 @@ function normalizePositiveLimit(value, fallback = DEFAULT_LIMIT_PER_DATASET) {
     return Math.floor(limit);
   }
 
-  return fallback;
+  return fallback ?? null;
 }
 
 /**

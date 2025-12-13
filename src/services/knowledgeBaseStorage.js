@@ -73,7 +73,8 @@ async function initializeDatabase(dbPath = DEFAULT_DB_PATH) {
       contentLength INTEGER,
       aliasCount INTEGER,
       tagCount INTEGER,
-      source TEXT
+      source TEXT,
+      embedding TEXT
     )`
   );
 
@@ -105,7 +106,8 @@ async function getMysqlPool(customConfig = {}) {
             contentLength INT,
             aliasCount INT,
             tagCount INT,
-            source VARCHAR(191)
+            source VARCHAR(191),
+            embedding LONGTEXT
           ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
         `);
 
@@ -151,8 +153,8 @@ async function saveKnowledgeBaseEntries(entries, { dbPath = DEFAULT_DB_PATH } = 
         const stmt = db.prepare(
           `INSERT INTO knowledge_entries (
             id, title, aliases, content, tags, category, lastUpdated,
-            contentLength, aliasCount, tagCount, source
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            contentLength, aliasCount, tagCount, source, embedding
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
 
         entries.forEach((entry, index) => {
@@ -169,6 +171,7 @@ async function saveKnowledgeBaseEntries(entries, { dbPath = DEFAULT_DB_PATH } = 
               entry.aliasCount || 0,
               entry.tagCount || 0,
               entry.source || "unknown",
+              serializeEmbedding(entry.embedding),
             ],
             (err) => {
               if (err) {
@@ -234,12 +237,13 @@ async function saveKnowledgeBaseEntriesToMysql(
         entry.aliasCount || 0,
         entry.tagCount || 0,
         entry.source || "unknown",
+        serializeEmbedding(entry.embedding),
       ]);
 
       await connection.query(
         `INSERT INTO knowledge_entries (
           id, title, aliases, content, tags, category, lastUpdated,
-          contentLength, aliasCount, tagCount, source
+          contentLength, aliasCount, tagCount, source, embedding
         ) VALUES ?`,
         [batch]
       );
@@ -277,6 +281,7 @@ async function loadKnowledgeBaseFromDb({ dbPath = DEFAULT_DB_PATH } = {}) {
     aliasCount: row.aliasCount,
     tagCount: row.tagCount,
     source: row.source || "unknown",
+    embedding: restoreEmbedding(safeParse(row.embedding, null)),
   }));
 }
 
@@ -296,6 +301,7 @@ async function loadKnowledgeBaseFromMysql({ mysqlConfig = {} } = {}) {
     aliasCount: row.aliasCount,
     tagCount: row.tagCount,
     source: row.source || "unknown",
+    embedding: restoreEmbedding(safeParse(row.embedding, null)),
   }));
 }
 
@@ -320,6 +326,42 @@ function safeParse(value, fallback) {
     return JSON.parse(value);
   } catch (error) {
     return fallback;
+  }
+}
+
+function serializeEmbedding(embedding) {
+  if (!embedding) return null;
+
+  try {
+    if (Array.isArray(embedding)) {
+      return JSON.stringify(embedding);
+    }
+
+    if (embedding instanceof Float32Array) {
+      return JSON.stringify(Array.from(embedding));
+    }
+
+    return JSON.stringify(embedding);
+  } catch (error) {
+    console.warn(
+      `⚠️ Не удалось сериализовать эмбеддинг: ${error?.message || "unknown"}`
+    );
+    return null;
+  }
+}
+
+function restoreEmbedding(rawEmbedding) {
+  if (!rawEmbedding) return null;
+
+  try {
+    if (rawEmbedding instanceof Float32Array) return rawEmbedding;
+    if (Array.isArray(rawEmbedding)) return Float32Array.from(rawEmbedding);
+    return rawEmbedding;
+  } catch (error) {
+    console.warn(
+      `⚠️ Не удалось восстановить эмбеддинг: ${error?.message || "unknown"}`
+    );
+    return null;
   }
 }
 
