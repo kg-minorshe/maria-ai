@@ -41,6 +41,7 @@ const {
 const { performSystemHealthCheck } = require("./services/systemHealth");
 const { normalizeText } = require("./utils/text");
 const { logStep, logError } = require("./utils/logger");
+const { warmupHighPerformancePool } = require("./services/highPerformanceProcessing");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -151,6 +152,8 @@ async function initializeSystem() {
   try {
     // Загрузка базы знаний
     await loadKnowledgeBase();
+
+    await warmupHighPerformancePool();
 
     // Инициализация компонентов
     contextManager = new DialogContextManager();
