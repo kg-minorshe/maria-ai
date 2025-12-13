@@ -437,9 +437,11 @@ async function loadKnowledgeBaseFile(filePath, sampleCreator, label) {
     return parseNdjsonStream(filePath, label);
   }
 
-  // Для больших файлов (>5 МБ) применяем потоковый парсер массива, минуя JSON.parse
-  // чтобы избежать RangeError: Maximum call stack size exceeded.
-  if (fileSizeBytes > 5 * 1024 * 1024) {
+  // Для JSON-массивов даже средней величины используем потоковый разбор, чтобы
+  // не получать переполнение стека от JSON.parse и не дублировать данные в памяти.
+  // Порог снижен до 1 МБ, чтобы гарантированно избежать рекурсивного парсинга
+  // большого массива в стандартной реализации JSON.parse.
+  if (fileSizeBytes > 1 * 1024 * 1024) {
     return parseJsonArrayStream(filePath, label);
   }
 
