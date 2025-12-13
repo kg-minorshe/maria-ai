@@ -9,10 +9,38 @@ const DEFAULT_DATASET_PATH = path.join(
   "russian-open-qa.jsonl"
 );
 
-function ensureDatasetExists(datasetPath = DEFAULT_DATASET_PATH) {
-  if (fs.existsSync(datasetPath)) {
-    return;
+/**
+ * Поддерживаем:
+ * - один файл *.jsonl
+ * - каталог: прочитаем все *.jsonl внутри
+ * - массив путей
+ * - относительные пути (от rootDir)
+ */
+
+function isDirectory(p) {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
   }
+}
+
+function toAbs(rootDir, p) {
+  if (!p) return p;
+  return path.isAbsolute(p) ? p : path.join(rootDir, p);
+}
+
+function listJsonlFiles(dirAbs) {
+  if (!fs.existsSync(dirAbs)) return [];
+  const entries = fs.readdirSync(dirAbs, { withFileTypes: true });
+  return entries
+    .filter((e) => e.isFile() && e.name.toLowerCase().endsWith(".jsonl"))
+    .map((e) => path.join(dirAbs, e.name))
+    .sort();
+}
+
+function ensureDatasetExists(datasetPath = DEFAULT_DATASET_PATH) {
+  if (fs.existsSync(datasetPath)) return;
 
   const sampleEntries = [
     {
@@ -36,9 +64,10 @@ function ensureDatasetExists(datasetPath = DEFAULT_DATASET_PATH) {
   ];
 
   const sampleContent = sampleEntries.map((entry) => JSON.stringify(entry)).join("\n");
+  fs.mkdirSync(path.dirname(datasetPath), { recursive: true });
   fs.writeFileSync(datasetPath, sampleContent, "utf8");
   console.log(
-    `📝 Создан пример русского датасета по пути ${datasetPath}. Замените его реальными данными (например, SberQuAD).`
+    `📝 Создан пример русского датасета по пути ${datasetPath}. Замените его реальными данными.`
   );
 }
 
@@ -62,12 +91,12 @@ async function readJsonl(datasetPath, { limit } = {}) {
     }
 
     if (result.length % 1000 === 0) {
-      console.log(`📥 Загружено ${result.length} записей русского датасета в память`);
+      console.log(`📥 Загружено ${result.length} записей из ${path.basename(datasetPath)} в память`);
     }
 
     if (typeof limit === "number" && limit > 0 && result.length >= limit) {
       console.log(
-        `⏩ Достигнут лимит загрузки ${limit} строк русского датасета, дальнейшее чтение остановлено`
+        `⏩ Достигнут лимит загрузки ${limit} строк для ${path.basename(datasetPath)}, дальнейшее чтение остановлено`
       );
       break;
     }
@@ -92,8 +121,27 @@ function normalizeDatasetEntry(entry, index) {
   };
 }
 
-async function loadRussianDataset({ rootDir = path.resolve(__dirname, "../.."), datasetPath, limit } = {}) {
-  const resolvedDatasetPath = datasetPath || process.env.KB_RUSSIAN_PATH || DEFAULT_DATASET_PATH;
+/**
+ * Загружает ОДИН датасет (файл jsonl).
+ * Оставляем для обратной совместимости.
+ */
+async function loadRussianDataset({
+  rootDir = path.resolve(__dirname, "../.."),
+  datasetPath,
+  limit,
+} = {}) {
+  const resolvedDatasetPath = toAbs(
+    rootDir,
+    datasetPath || process.env.KB_RUSSIAN_PATH || DEFAULT_DATASET_PATH
+  );
+
+  // если это каталог — возьмём первый *.jsonl, чтобы старый контракт не ломался
+  if (isDirectory(resolvedDatasetPath)) {
+    const files = listJsonlFiles(resolvedDatasetPath);
+    if (!files.length) return [];
+    return loadRussianDataset({ rootDir, datasetPath: files[0], limit });
+  }
+
   ensureDatasetExists(resolvedDatasetPath);
 
   if (!fs.existsSync(resolvedDatasetPath)) {
@@ -106,7 +154,76 @@ async function loadRussianDataset({ rootDir = path.resolve(__dirname, "../.."), 
   return typeof limit === "number" && limit > 0 ? normalized.slice(0, limit) : normalized;
 }
 
+/**
+ * ✅ НОВОЕ: грузим НЕСКОЛЬКО датасетов.
+ *
+ * inputs:
+ *  - массив путей (файлы или каталоги)
+ *  - относительные пути разрешаются от rootDir
+ *
+ * возвращаем:
+ *  - datasets: { [key]: entries[] }
+ *  - all: плоский массив
+ */
+async function loadRussianDatasets({
+  rootDir = path.resolve(__dirname, "../.."),
+  inputs = [],
+  limitPerDataset,
+} = {}) {
+  const expandedFiles = [];
+
+  const normalizedInputs = Array.isArray(inputs) ? inputs : [inputs];
+
+  for (const input of normalizedInputs) {
+    if (!input) continue;
+
+    const abs = toAbs(rootDir, input);
+
+    if (isDirectory(abs)) {
+      const files = listJsonlFiles(abs);
+      for (const f of files) expandedFiles.push(f);
+      continue;
+    }
+
+    // обычный файл
+    expandedFiles.push(abs);
+  }
+
+  // Если ничего не дали — ведём себя как раньше
+  if (!expandedFiles.length) {
+    expandedFiles.push(toAbs(rootDir, DEFAULT_DATASET_PATH));
+  }
+
+  // Если есть только дефолтный файл и его нет — создадим пример
+  if (expandedFiles.length === 1) {
+    ensureDatasetExists(expandedFiles[0]);
+  }
+
+  const datasets = {};
+  const all = [];
+
+  for (const fileAbs of expandedFiles) {
+    if (!fs.existsSync(fileAbs)) {
+      console.warn(`⚠️  Русский датасет не найден: ${fileAbs}`);
+      continue;
+    }
+
+    const key = path.basename(fileAbs, path.extname(fileAbs));
+    const entries = await loadRussianDataset({
+      rootDir,
+      datasetPath: fileAbs,
+      limit: limitPerDataset,
+    });
+
+    datasets[key] = entries;
+    all.push(...entries);
+  }
+
+  return { datasets, all };
+}
+
 module.exports = {
   loadRussianDataset,
+  loadRussianDatasets,
   DEFAULT_DATASET_PATH,
 };

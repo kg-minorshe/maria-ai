@@ -1,5 +1,3 @@
-const { logStep, logDebug, logError } = require("../utils/logger");
-
 class ExternalSemanticSearchClient {
     constructor({ baseUrl, apiKey, timeoutMs = 5000 } = {}) {
         this.baseUrl = baseUrl?.replace(/\/$/, "");

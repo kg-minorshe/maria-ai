@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { loadRussianDataset } = require("./russianDatasetLoader");
+const { loadRussianDatasets } = require("./russianDatasetLoader");
 const {
   saveKnowledgeBaseEntries,
   loadKnowledgeBaseFromDb,
@@ -10,7 +10,12 @@ const {
 let knowledgeStore = {
   projectKnowledgeBase: [],
   generalKnowledgeBase: [],
-  russianDataset: [],
+
+  // было: russianDataset: []
+  // стало: отдельные датасеты + общий плоский список
+  russianDatasets: {}, // { [datasetKey]: entries[] }
+  russianDataset: [], // плоский массив всех русских датасетов
+
   combined: [],
   status: "idle",
   loadedAt: null,
@@ -21,12 +26,18 @@ function resolveKnowledgePaths(rootDir) {
   const knowledgeDir = path.join(rootDir, "data", "knowledge");
 
   return {
-    project: path.join(knowledgeDir, "knowledge-base-project.json"),
-    general: path.join(knowledgeDir, "knowledge-base-general.json"),
+    project: path.join(knowledgeDir, "ru_datasets/knowledge-base-project.json"),
+    general: path.join(knowledgeDir, "ru_datasets/knowledge-base-general.json"),
+    // дефолтный "русский" теперь может быть каталогом/файлом, но это решает loader
+    russianDefault: path.join(knowledgeDir, "russian-open-qa.jsonl"),
   };
 }
 
-async function loadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
+async function loadKnowledgeBase({
+  projectPath,
+  generalPath,
+  rootDir = path.resolve(__dirname, "../.."),
+} = {}) {
   if (knowledgeStore.status === "ready" && knowledgeStore.combined.length) {
     console.log(
       `ℹ️  Используется предзагруженная база знаний в памяти (${knowledgeStore.combined.length} статей)`
@@ -37,13 +48,18 @@ async function loadKnowledgeBase({ projectPath, generalPath, rootDir = path.reso
       projectKnowledgeBase: knowledgeStore.projectKnowledgeBase,
       generalKnowledgeBase: knowledgeStore.generalKnowledgeBase,
       russianDataset: knowledgeStore.russianDataset,
+      russianDatasets: knowledgeStore.russianDatasets,
     };
   }
 
   return reloadKnowledgeBase({ projectPath, generalPath, rootDir });
 }
 
-async function reloadKnowledgeBase({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
+async function reloadKnowledgeBase({
+  projectPath,
+  generalPath,
+  rootDir = path.resolve(__dirname, "../.."),
+} = {}) {
   console.log("⏳ Предзагрузка базы знаний в оперативную память...");
   knowledgeStore.status = "loading";
 
@@ -61,6 +77,7 @@ async function reloadKnowledgeBase({ projectPath, generalPath, rootDir = path.re
     projectKnowledgeBase: loaded.projectKnowledgeBase,
     generalKnowledgeBase: loaded.generalKnowledgeBase,
     russianDataset: loaded.russianDataset,
+    russianDatasets: loaded.russianDatasets,
     status: "ready",
     loadedAt: new Date(),
     loadTimeMs: Date.now() - loadStart,
@@ -75,15 +92,41 @@ async function reloadKnowledgeBase({ projectPath, generalPath, rootDir = path.re
     projectKnowledgeBase: knowledgeStore.projectKnowledgeBase,
     generalKnowledgeBase: knowledgeStore.generalKnowledgeBase,
     russianDataset: knowledgeStore.russianDataset,
+    russianDatasets: knowledgeStore.russianDatasets,
   };
 }
 
-async function loadKnowledgeBaseFromStorage({ projectPath, generalPath, rootDir = path.resolve(__dirname, "../..") } = {}) {
+async function loadKnowledgeBaseFromStorage({
+  projectPath,
+  generalPath,
+  rootDir = path.resolve(__dirname, "../.."),
+} = {}) {
   const paths = resolveKnowledgePaths(rootDir);
 
-  const resolvedProjectPath = projectPath || process.env.KB_PROJECT_PATH || paths.project;
-  const resolvedGeneralPath = generalPath || process.env.KB_GENERAL_PATH || paths.general;
-  const russianDatasetPath = process.env.KB_RUSSIAN_PATH;
+  const resolvedProjectPath =
+    projectPath || process.env.KB_PROJECT_PATH || paths.project;
+  const resolvedGeneralPath =
+    generalPath || process.env.KB_GENERAL_PATH || paths.general;
+
+  /**
+   * ✅ НОВОЕ:
+   * KB_RUSSIAN_PATHS — список путей через запятую:
+   *   KB_RUSSIAN_PATHS="data/knowledge/ru1.jsonl,data/knowledge/ru2.jsonl"
+   *
+   * Или можно оставить KB_RUSSIAN_PATH как один путь (для обратной совместимости).
+   * Также можно указать каталог: "data/knowledge/ru_datasets" — loader прочитает все *.jsonl.
+   */
+  const russianPathsEnv = process.env.KB_RUSSIAN_PATHS;
+  const russianSingleEnv = process.env.KB_RUSSIAN_PATH;
+
+  const russianInputs = russianPathsEnv
+    ? russianPathsEnv
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : russianSingleEnv
+    ? [russianSingleEnv]
+    : [paths.russianDefault];
 
   const projectStart = Date.now();
   const projectKnowledgeBase = appendSource(
@@ -95,7 +138,9 @@ async function loadKnowledgeBaseFromStorage({ projectPath, generalPath, rootDir 
     "project"
   );
   console.log(
-    `📚 Загружена проектная база знаний: ${projectKnowledgeBase.length} записей за ${Date.now() - projectStart} мс`
+    `📚 Загружена проектная база знаний: ${projectKnowledgeBase.length} записей за ${
+      Date.now() - projectStart
+    } мс`
   );
 
   const generalStart = Date.now();
@@ -108,28 +153,38 @@ async function loadKnowledgeBaseFromStorage({ projectPath, generalPath, rootDir 
     "general"
   );
   console.log(
-    `📖 Загружена общая база знаний: ${generalKnowledgeBase.length} записей за ${Date.now() - generalStart} мс`
+    `📖 Загружена общая база знаний: ${generalKnowledgeBase.length} записей за ${
+      Date.now() - generalStart
+    } мс`
   );
 
   const russianStart = Date.now();
-  const russianDataset = appendSource(
-    await loadRussianDataset({
+  const { datasets: russianDatasetsRaw, all: russianAllRaw } =
+    await loadRussianDatasets({
       rootDir,
-      datasetPath: russianDatasetPath,
-      limit: Number(process.env.KB_RUSSIAN_LIMIT || 750),
-    }),
-    "russian"
-  );
+      inputs: russianInputs,
+      limitPerDataset: Number(process.env.KB_RUSSIAN_LIMIT || 750),
+      // если хочешь общий лимит на всё — добавим позже, но сейчас сделаем просто per dataset
+    });
+
+  // Обогащаем source, чтобы было видно, из какого файла пришло
+  const russianDatasets = {};
+  let russianDataset = [];
+
+  for (const [key, entries] of Object.entries(russianDatasetsRaw)) {
+    const enriched = appendSource(entries, `russian:${key}`);
+    russianDatasets[key] = enriched;
+    russianDataset = russianDataset.concat(enriched);
+  }
+
   console.log(
-    `🇷🇺 Загружен русский датасет: ${russianDataset.length} записей за ${Date.now() - russianStart} мс`
+    `🇷🇺 Загружены русские датасеты: ${Object.keys(russianDatasets).length} шт, всего ${russianDataset.length} записей за ${
+      Date.now() - russianStart
+    } мс`
   );
 
   const knowledgeBase = validateAndEnrichKnowledgeBase(
-    [
-      ...projectKnowledgeBase,
-      ...generalKnowledgeBase,
-      ...russianDataset,
-    ],
+    [...projectKnowledgeBase, ...generalKnowledgeBase, ...russianDataset],
     { withProgress: true }
   );
 
@@ -138,6 +193,7 @@ async function loadKnowledgeBaseFromStorage({ projectPath, generalPath, rootDir 
     projectKnowledgeBase,
     generalKnowledgeBase,
     russianDataset,
+    russianDatasets,
   };
 }
 
@@ -259,6 +315,7 @@ function resetKnowledgeBaseCache() {
   knowledgeStore = {
     projectKnowledgeBase: [],
     generalKnowledgeBase: [],
+    russianDatasets: {},
     russianDataset: [],
     combined: [],
     status: "idle",
