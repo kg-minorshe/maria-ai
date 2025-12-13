@@ -9,6 +9,18 @@ const DEFAULT_DATASET_PATH = path.join(
   "russian-open-qa.jsonl"
 );
 
+const DEFAULT_LIMIT_PER_DATASET = 750;
+
+function normalizePositiveLimit(value, fallback = DEFAULT_LIMIT_PER_DATASET) {
+  const limit = Number(value);
+
+  if (Number.isFinite(limit) && limit > 0) {
+    return Math.floor(limit);
+  }
+
+  return fallback;
+}
+
 /**
  * Поддерживаем:
  * - один файл *.jsonl
@@ -149,9 +161,12 @@ async function loadRussianDataset({
     return [];
   }
 
-  const rawEntries = await readJsonl(resolvedDatasetPath, { limit });
+  const normalizedLimit = normalizePositiveLimit(limit);
+  const rawEntries = await readJsonl(resolvedDatasetPath, { limit: normalizedLimit });
   const normalized = rawEntries.map(normalizeDatasetEntry);
-  return typeof limit === "number" && limit > 0 ? normalized.slice(0, limit) : normalized;
+  return typeof normalizedLimit === "number" && normalizedLimit > 0
+    ? normalized.slice(0, normalizedLimit)
+    : normalized;
 }
 
 /**
@@ -199,6 +214,18 @@ async function loadRussianDatasets({
     ensureDatasetExists(expandedFiles[0]);
   }
 
+  const effectiveLimit = normalizePositiveLimit(limitPerDataset);
+
+  if (
+    typeof limitPerDataset !== "undefined" &&
+    effectiveLimit !== limitPerDataset &&
+    Number(limitPerDataset) !== effectiveLimit
+  ) {
+    console.warn(
+      `⚠️  Некорректное значение KB_RUSSIAN_LIMIT (${limitPerDataset}). Использую безопасное значение ${effectiveLimit}.`
+    );
+  }
+
   const datasets = {};
   const all = [];
 
@@ -227,7 +254,7 @@ async function loadRussianDatasets({
     const entries = await loadRussianDataset({
       rootDir,
       datasetPath: fileAbs,
-      limit: limitPerDataset,
+      limit: effectiveLimit,
     });
 
     datasets[key] = entries;
@@ -241,4 +268,6 @@ module.exports = {
   loadRussianDataset,
   loadRussianDatasets,
   DEFAULT_DATASET_PATH,
+  DEFAULT_LIMIT_PER_DATASET,
+  normalizePositiveLimit,
 };
